@@ -78,11 +78,7 @@ pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Re
     match catalog.get_table(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
         Some(table) => {
-            let key_position = table
-                .columns
-                .iter()
-                .position(|col_def| col_def.name == table.primary_key)
-                .with_context(|| "Internal Error: primary key must exist.")?;
+            let key_position = table.pk_position();
             let table_path = catalog.get_table_path(&command.table_name);
             if !table_path.exists() {
                 bail!(

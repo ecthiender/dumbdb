@@ -11,86 +11,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{query::ddl::CreateTableCommand, ColumnDefinition};
 
-/// Internal metadata of what tables are there, their schema etc.
-#[derive(Debug, Clone)]
-pub(crate) struct Catalog {
-    directory_path: PathBuf,
-    catalog_path: PathBuf,
-    tables: Vec<Table>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Table {
-    pub(crate) name: String,
-    pub(crate) columns: Vec<ColumnDefinition>,
-    pub(crate) primary_key: String,
-    pub(crate) file_write_handle: Arc<File>,
-    pub(crate) index: BTreeMap<String, usize>,
-    pub(crate) cursor: usize,
-}
-
-impl Table {
-    pub fn new(
-        table_definition: CreateTableCommand,
-        directory_path: &Path,
-    ) -> anyhow::Result<Self> {
-        let table_path = get_table_path_(directory_path, &table_definition.name);
-
-        let (index, cursor) = Self::build_index(&table_path, &table_definition)?;
-
-        let write_file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(table_path)
-            .with_context(|| "Could not open file for writing.")?;
-
-        Ok(Self {
-            name: table_definition.name,
-            columns: table_definition.columns,
-            primary_key: table_definition.primary_key,
-            file_write_handle: Arc::new(write_file),
-            index,
-            cursor,
-        })
-    }
-
-    fn build_index(
-        table_path: &Path,
-        table: &CreateTableCommand,
-    ) -> anyhow::Result<(BTreeMap<String, usize>, usize)> {
-        let key_position = table
-            .columns
-            .iter()
-            .position(|col_def| col_def.name == table.primary_key)
-            .with_context(|| "Internal Error: primary key must exist.")?;
-
-        let contents = fs::read_to_string(table_path)?;
-        let mut index = BTreeMap::new();
-        for (row_pos, line) in contents.lines().enumerate() {
-            let parts: Vec<_> = line.split(",").collect();
-            let index_key = parts[key_position];
-            index.insert(index_key.to_string(), row_pos);
-        }
-        Ok((index, contents.len()))
-    }
-
-    pub fn get_column(&self, name: &str) -> Option<&ColumnDefinition> {
-        self.columns.iter().find(|col| col.name == name)
-    }
-}
-
+/// Internal metadata of what tables are there, their schema etc. that we can
+/// serialize to disk.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct SerializableCatalog {
     tables: Vec<CreateTableCommand>,
 }
 
-impl<'a> From<&'a Table> for CreateTableCommand {
-    fn from(table: &'a Table) -> Self {
-        Self {
-            name: table.name.clone(),
-            columns: table.columns.clone(),
-            primary_key: table.primary_key.clone(),
-        }
-    }
+/// Internal metadata of what tables are there, their schema etc., that we keep
+/// in memory. Contains computed in-memory state like indexes.
+#[derive(Debug, Clone)]
+pub(crate) struct Catalog {
+    directory_path: PathBuf,
+    catalog_path: PathBuf,
+    tables: Vec<Table>,
 }
 
 impl Catalog {
@@ -140,6 +74,87 @@ impl Catalog {
             tables: self.tables.iter().map(Into::into).collect(),
         };
         write_json_file(&self.catalog_path, &stored_catalog)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Table {
+    pub(crate) name: String,
+    pub(crate) columns: Vec<ColumnDefinition>,
+    pub(crate) primary_key: String,
+    pub(crate) file_write_handle: Arc<File>,
+    pub(crate) index: BTreeMap<String, usize>,
+    pub(crate) cursor: usize,
+    primary_key_position: usize,
+}
+
+impl Table {
+    pub fn new(
+        table_definition: CreateTableCommand,
+        directory_path: &Path,
+    ) -> anyhow::Result<Self> {
+        let table_path = get_table_path_(directory_path, &table_definition.name);
+
+        let (index, cursor) = Self::build_index(&table_path, &table_definition)?;
+
+        let write_file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(table_path)
+            .with_context(|| "Could not open file for writing.")?;
+
+        let key_position = table_definition
+            .columns
+            .iter()
+            .position(|col_def| col_def.name == table_definition.primary_key)
+            .with_context(|| "Internal Error: primary key must exist.")?;
+
+        Ok(Self {
+            name: table_definition.name,
+            columns: table_definition.columns,
+            primary_key: table_definition.primary_key,
+            primary_key_position: key_position,
+            file_write_handle: Arc::new(write_file),
+            index,
+            cursor,
+        })
+    }
+
+    fn build_index(
+        table_path: &Path,
+        table: &CreateTableCommand,
+    ) -> anyhow::Result<(BTreeMap<String, usize>, usize)> {
+        let key_position = table
+            .columns
+            .iter()
+            .position(|col_def| col_def.name == table.primary_key)
+            .with_context(|| "Internal Error: primary key must exist.")?;
+
+        let contents = fs::read_to_string(table_path)?;
+        let mut index = BTreeMap::new();
+        for (row_pos, line) in contents.lines().enumerate() {
+            let parts: Vec<_> = line.split(",").collect();
+            let index_key = parts[key_position];
+            index.insert(index_key.to_string(), row_pos);
+        }
+        Ok((index, contents.len()))
+    }
+
+    pub fn get_column(&self, name: &str) -> Option<&ColumnDefinition> {
+        self.columns.iter().find(|col| col.name == name)
+    }
+
+    pub fn pk_position(&self) -> usize {
+        self.primary_key_position
+    }
+}
+
+impl<'a> From<&'a Table> for CreateTableCommand {
+    fn from(table: &'a Table) -> Self {
+        Self {
+            name: table.name.clone(),
+            columns: table.columns.clone(),
+            primary_key: table.primary_key.clone(),
+        }
     }
 }
 
