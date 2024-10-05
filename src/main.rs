@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-
-use dumbdb::{create_table, get_item, put_item, Catalog, GetItemCommand, PutItemCommand};
+use dumbdb::{Database, GetItemCommand, PutItemCommand};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde_json::json;
@@ -22,17 +20,17 @@ fn main() -> anyhow::Result<()> {
         "primary_key": "id"
     });
 
-    let mut catalog = Catalog::new(PathBuf::from("./data/dumbdb"))?;
-    create_table(serde_json::from_value(authors_table)?, &mut catalog)?;
+    let mut db = Database::new("./data/dumbdb")?;
+    db.create_table(serde_json::from_value(authors_table)?)?;
 
     for i in 0..10000 {
         let author_item = create_put_item(i)?;
-        put_item(author_item, &mut catalog)?;
+        db.put_item(author_item)?;
     }
 
     for i in 5672..8764 {
         let cmd = create_get_item(i)?;
-        let record = get_item(cmd, &catalog)?;
+        let record = db.get_item(cmd)?;
         println!("Get Item of {}: Result: {:?}", i, record);
     }
 

@@ -9,6 +9,29 @@ use std::{
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
+pub struct Database {
+    catalog: Catalog,
+}
+
+impl Database {
+    pub fn new(path: &str) -> anyhow::Result<Self> {
+        let catalog = Catalog::new(PathBuf::from(path))?;
+        Ok(Self { catalog })
+    }
+
+    pub fn create_table(&mut self, table: CreateTableCommand) -> anyhow::Result<()> {
+        create_table(table, &mut self.catalog)
+    }
+
+    pub fn put_item(&self, command: PutItemCommand) -> anyhow::Result<()> {
+        put_item(command, &self.catalog)
+    }
+
+    pub fn get_item(&self, command: GetItemCommand) -> anyhow::Result<Record> {
+        get_item(command, &self.catalog)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTableCommand {
     pub name: String,
@@ -106,14 +129,14 @@ pub struct GetItemCommand {
 
 /// Internal metadata of what tables are there, their schema etc.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Catalog {
-    pub directory_path: PathBuf,
-    pub catalog_path: PathBuf,
-    pub tables: Vec<CreateTableCommand>,
+struct Catalog {
+    directory_path: PathBuf,
+    catalog_path: PathBuf,
+    tables: Vec<CreateTableCommand>,
 }
 
 impl Catalog {
-    pub fn new(dir_path: PathBuf) -> anyhow::Result<Self> {
+    fn new(dir_path: PathBuf) -> anyhow::Result<Self> {
         if !dir_path.exists() {
             bail!("Database directory '{}' doesn't exist.", dir_path.display())
         }
@@ -131,11 +154,11 @@ impl Catalog {
         }
     }
 
-    pub fn flush(&self) -> anyhow::Result<()> {
+    fn flush(&self) -> anyhow::Result<()> {
         write_json_file(&self.catalog_path, self)
     }
 
-    pub fn get_table(&self, name: &str) -> Option<&CreateTableCommand> {
+    fn get_table(&self, name: &str) -> Option<&CreateTableCommand> {
         for table in &self.tables {
             if table.name == name {
                 return Some(table);
@@ -145,7 +168,7 @@ impl Catalog {
     }
 }
 
-pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Record> {
+fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Record> {
     match catalog.get_table(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
         Some(table) => {
@@ -184,7 +207,7 @@ fn parse_record(columns: &Vec<ColumnDefinition>, item: &str) -> anyhow::Result<R
     Ok(result)
 }
 
-pub fn put_item(command: PutItemCommand, catalog: &Catalog) -> anyhow::Result<()> {
+fn put_item(command: PutItemCommand, catalog: &Catalog) -> anyhow::Result<()> {
     // check if table name is valid
     match catalog.get_table(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
@@ -247,7 +270,7 @@ fn insert_into_table(mut item: Record, table_name: &str, catalog: &Catalog) -> a
 }
 
 /// creates a table in the catalog and also on the disk
-pub fn create_table(table: CreateTableCommand, catalog: &mut Catalog) -> anyhow::Result<()> {
+fn create_table(table: CreateTableCommand, catalog: &mut Catalog) -> anyhow::Result<()> {
     if catalog.get_table(&table.name).is_some() {
         bail!("Table name '{}' already exists", table.name);
     }
@@ -338,20 +361,20 @@ mod tests {
 
     #[test]
     fn test_create_table() -> anyhow::Result<()> {
-        let catalog = setup("create_table")?;
-        assert!(catalog.get_table("authors").is_some());
+        let db = setup("create_table")?;
+        assert!(db.catalog.get_table("authors").is_some());
         Ok(())
     }
 
     #[test]
     fn test_write_data() -> anyhow::Result<()> {
-        let mut catalog = setup("write_data")?;
+        let db = setup("write_data")?;
         for i in 0..10 {
             let author_item = create_put_item(i)?;
-            put_item(author_item, &mut catalog)?;
+            db.put_item(author_item)?;
         }
         let table_rel_path = PathBuf::from(format!("authors.tbl"));
-        let table_path = catalog.directory_path.join(table_rel_path);
+        let table_path = db.catalog.directory_path.join(table_rel_path);
         let contents = fs::read_to_string(table_path)?;
         let last_line = contents
             .lines()
@@ -364,14 +387,14 @@ mod tests {
 
     #[test]
     fn test_read_data() -> anyhow::Result<()> {
-        let mut catalog = setup("read_data")?;
+        let db = setup("read_data")?;
         for i in 0..10 {
             let author_item = create_put_item(i)?;
-            put_item(author_item, &mut catalog)?;
+            db.put_item(author_item)?;
         }
         for i in 5..8 {
             let cmd = create_get_item(i)?;
-            let record = get_item(cmd, &catalog)?;
+            let record = db.get_item(cmd)?;
             assert_eq!(
                 &PrimitiveValue::Integer(i as u64),
                 record.get("id").unwrap()
@@ -380,7 +403,7 @@ mod tests {
         Ok(())
     }
 
-    fn setup(test_name: &str) -> anyhow::Result<Catalog> {
+    fn setup(test_name: &str) -> anyhow::Result<Database> {
         let authors_table = json!({
             "name": "authors",
             "columns": [
@@ -403,9 +426,9 @@ mod tests {
             let _ = fs::remove_dir_all(&dir_path);
         }
         fs::create_dir_all(&dir_path)?;
-        let mut catalog = Catalog::new(dir_path)?;
-        create_table(serde_json::from_value(authors_table)?, &mut catalog)?;
-        Ok(catalog)
+        let mut db = Database::new(dir_path.to_str().unwrap())?;
+        db.create_table(serde_json::from_value(authors_table)?)?;
+        Ok(db)
     }
 
     fn create_get_item(id: u64) -> anyhow::Result<GetItemCommand> {
