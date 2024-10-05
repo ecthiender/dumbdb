@@ -1,9 +1,9 @@
-use std::{fmt::Display, fs::File, path::PathBuf};
+use std::{fmt::Display, fs::File};
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::{catalog::Catalog, helper::write_to_file};
+use crate::catalog::Catalog;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTableCommand {
@@ -49,14 +49,12 @@ pub fn create_table(table: CreateTableCommand, catalog: &mut Catalog) -> anyhow:
         bail!("Table name '{}' already exists", table.name);
     }
     create_table_on_disk(&table, catalog)?;
-    catalog.tables.push(table);
-    catalog.flush()?;
+    catalog.add_table(table)?;
     Ok(())
 }
 
 fn create_table_on_disk(table: &CreateTableCommand, catalog: &Catalog) -> anyhow::Result<()> {
-    let table_rel_path = PathBuf::from(format!("{}.tbl", table.name.clone()));
-    let table_path = catalog.directory_path.join(table_rel_path);
+    let table_path = catalog.get_table_path(&table.name);
     if table_path.exists() {
         bail!(
             "FATAL: Internal Error: Table filepath {} already exists.",
@@ -64,23 +62,9 @@ fn create_table_on_disk(table: &CreateTableCommand, catalog: &Catalog) -> anyhow
         );
     }
 
-    // prepare the column names in CSV format
-    let column_names = table
-        .columns
-        .iter()
-        .map(|col| col.name.clone())
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let mut file = File::create(&table_path).with_context(|| {
+    File::create(&table_path).with_context(|| {
         format!(
             "FATAL: Internal Error: Failed to create table file path: {}",
-            table_path.clone().display()
-        )
-    })?;
-    write_to_file(&mut file, column_names).with_context(|| {
-        format!(
-            "FATAL: Internal Error: Failed to write columns to table file path: {}",
             table_path.clone().display()
         )
     })?;

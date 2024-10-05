@@ -3,7 +3,6 @@ use std::{
     collections::HashMap,
     fmt::Display,
     fs::{self},
-    path::PathBuf,
 };
 
 use anyhow::{bail, Context};
@@ -79,8 +78,7 @@ pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Re
                 .iter()
                 .position(|col_def| col_def.name == table.primary_key)
                 .with_context(|| "Internal Error: primary key must exist.")?;
-            let table_rel_path = PathBuf::from(format!("{}.tbl", command.table_name));
-            let table_path = catalog.directory_path.join(table_rel_path);
+            let table_path = catalog.get_table_path(&command.table_name);
             if !table_path.exists() {
                 bail!(
                     "FATAL: Internal Error: Table filepath does not exist: {}",
@@ -136,8 +134,7 @@ pub fn put_item(command: PutItemCommand, catalog: &Catalog) -> anyhow::Result<()
 }
 
 fn insert_into_table(mut item: Record, table_name: &str, catalog: &Catalog) -> anyhow::Result<()> {
-    let table_rel_path = PathBuf::from(format!("{}.tbl", table_name));
-    let table_path = catalog.directory_path.join(table_rel_path);
+    let table_path = catalog.get_table_path(table_name);
     if !table_path.exists() {
         bail!(
             "FATAL: Internal Error: Table filepath does not exist: {}",

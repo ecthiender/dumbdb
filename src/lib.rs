@@ -60,8 +60,7 @@ mod tests {
             let author_item = create_put_item(i)?;
             db.put_item(author_item)?;
         }
-        let table_rel_path = PathBuf::from("authors.tbl".to_string());
-        let table_path = db.catalog.directory_path.join(table_rel_path);
+        let table_path = db.catalog.get_table_path("authors");
         let contents = fs::read_to_string(table_path)?;
         let last_line = contents
             .lines()

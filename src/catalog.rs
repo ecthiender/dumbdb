@@ -12,9 +12,9 @@ use crate::query::ddl::CreateTableCommand;
 /// Internal metadata of what tables are there, their schema etc.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Catalog {
-    pub(crate) directory_path: PathBuf,
-    pub(crate) catalog_path: PathBuf,
-    pub(crate) tables: Vec<CreateTableCommand>,
+    directory_path: PathBuf,
+    catalog_path: PathBuf,
+    tables: Vec<CreateTableCommand>,
 }
 
 impl Catalog {
@@ -36,12 +36,23 @@ impl Catalog {
         }
     }
 
-    pub(crate) fn flush(&self) -> anyhow::Result<()> {
-        write_json_file(&self.catalog_path, self)
-    }
-
     pub(crate) fn get_table(&self, name: &str) -> Option<&CreateTableCommand> {
         self.tables.iter().find(|&table| table.name == name)
+    }
+
+    pub(crate) fn get_table_path(&self, table_name: &str) -> PathBuf {
+        let table_rel_path = PathBuf::from(format!("{}.tbl", table_name));
+        self.directory_path.join(table_rel_path)
+    }
+
+    pub(crate) fn add_table(&mut self, table: CreateTableCommand) -> anyhow::Result<()> {
+        self.tables.push(table);
+        self.flush()?;
+        Ok(())
+    }
+
+    fn flush(&self) -> anyhow::Result<()> {
+        write_json_file(&self.catalog_path, self)
     }
 }
 
