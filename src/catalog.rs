@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs::File,
+    fs::{self, File},
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
     sync::Arc,
@@ -25,7 +25,8 @@ pub(crate) struct Table {
     pub(crate) columns: Vec<ColumnDefinition>,
     pub(crate) primary_key: String,
     pub(crate) file_write_handle: Arc<File>,
-    pub(crate) index: BTreeMap<String, u64>,
+    pub(crate) index: BTreeMap<String, usize>,
+    pub(crate) cursor: usize,
 }
 
 impl Table {
@@ -34,18 +35,42 @@ impl Table {
         directory_path: &Path,
     ) -> anyhow::Result<Self> {
         let table_path = get_table_path_(directory_path, &table_definition.name);
+
+        let (index, cursor) = Self::build_index(&table_path, &table_definition)?;
+
         let write_file = std::fs::OpenOptions::new()
             .append(true)
             .open(table_path)
             .with_context(|| "Could not open file for writing.")?;
 
-        Ok(Table {
+        Ok(Self {
             name: table_definition.name,
             columns: table_definition.columns,
             primary_key: table_definition.primary_key,
             file_write_handle: Arc::new(write_file),
-            index: BTreeMap::new(),
+            index,
+            cursor,
         })
+    }
+
+    fn build_index(
+        table_path: &Path,
+        table: &CreateTableCommand,
+    ) -> anyhow::Result<(BTreeMap<String, usize>, usize)> {
+        let key_position = table
+            .columns
+            .iter()
+            .position(|col_def| col_def.name == table.primary_key)
+            .with_context(|| "Internal Error: primary key must exist.")?;
+
+        let contents = fs::read_to_string(table_path)?;
+        let mut index = BTreeMap::new();
+        for (row_pos, line) in contents.lines().enumerate() {
+            let parts: Vec<_> = line.split(",").collect();
+            let index_key = parts[key_position];
+            index.insert(index_key.to_string(), row_pos);
+        }
+        Ok((index, contents.len()))
     }
 
     pub fn get_column(&self, name: &str) -> Option<&ColumnDefinition> {

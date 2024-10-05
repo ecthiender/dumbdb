@@ -27,7 +27,10 @@ async fn main() {
         .compact()
         .init();
 
-    let db = Database::new("./data/dumbdb").unwrap();
+    let db = Database::new("data/dumbdb").unwrap();
+
+    // _populate_data(&mut db, 50000, 100000, false).unwrap();
+
     let shared_state = Arc::new(AppState { db });
 
     // our router
@@ -110,6 +113,7 @@ impl Default for SuccessMessage {
     }
 }
 
+#[derive(Debug)]
 struct AppError(anyhow::Error);
 
 // This enables using `?` on functions that return `Result<_, anyhow::Error>` to
@@ -134,35 +138,34 @@ impl IntoResponse for AppError {
     }
 }
 
-fn _other_mn() -> anyhow::Result<()> {
-    println!("Hello, world! Executing commands in dumbdb ----> ");
-    let authors_table = json!({
-        "name": "authors",
-        "columns": [
-            {
-                "name": "id",
-                "type": "Integer",
-            },
-            {
-                "name": "name",
-                "type": "Text",
-            }
-        ],
-        "primary_key": "id"
-    });
+fn _populate_data(
+    db: &mut Database,
+    from: usize,
+    to: usize,
+    create_table: bool,
+) -> Result<(), AppError> {
+    if create_table {
+        let authors_table = json!({
+            "name": "authors",
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "Integer",
+                },
+                {
+                    "name": "name",
+                    "type": "Text",
+                }
+            ],
+            "primary_key": "id"
+        });
 
-    let mut db = Database::new("./data/dumbdb")?;
-    db.create_table(serde_json::from_value(authors_table)?)?;
-
-    for i in 0..10000 {
-        let author_item = _create_put_item(i)?;
-        db.put_item(author_item)?;
+        db.create_table(serde_json::from_value(authors_table)?)?;
     }
 
-    for i in 5672..8764 {
-        let cmd = _create_get_item(i)?;
-        let record = db.get_item(cmd)?;
-        println!("Get Item of {}: Result: {:?}", i, record);
+    for i in from..to {
+        let author_item = _create_put_item(i as u64)?;
+        db.put_item(author_item)?;
     }
 
     Ok(())

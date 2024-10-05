@@ -91,12 +91,25 @@ pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Re
                 );
             }
 
-            // read from the file
-            for line in fs::read_to_string(table_path)?.lines() {
-                let parts: Vec<_> = line.split(",").collect();
-                if parts[key_position] == command.key {
-                    let record = parse_record(&table.columns, line)?;
-                    return Ok(record);
+            // read from the index; get the cursor
+            if let Some(cursor) = table.index.get(&command.key) {
+                // read from the file
+                let contents = fs::read_to_string(table_path)?;
+                match contents.lines().nth(*cursor) {
+                    None => bail!("ERROR: Internal Error: Could not find item with primary key."),
+                    Some(line) => {
+                        let record = parse_record(&table.columns, line)?;
+                        return Ok(record);
+                    }
+                }
+            // scan the entire file
+            } else {
+                for line in fs::read_to_string(table_path)?.lines() {
+                    let parts: Vec<_> = line.split(",").collect();
+                    if parts[key_position] == command.key {
+                        let record = parse_record(&table.columns, line)?;
+                        return Ok(record);
+                    }
                 }
             }
             bail!("ERROR: Internal Error: Could not find item with primary key.");
@@ -120,16 +133,13 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
         Some(table) => {
             // check if primary key is present in payload
-            if !command
-                .item
-                .keys()
-                .any(|col_name| col_name == &table.primary_key)
-            {
-                bail!(
+            let key = match command.item.get(&table.primary_key) {
+                None => bail!(
                     "Item object must contain primary key: {}.",
                     table.primary_key
-                );
-            }
+                ),
+                Some(primary_key_value) => primary_key_value.to_storage_format(),
+            };
             // check if item data is valid
             for (column_name, value) in &command.item {
                 match table.get_column(column_name) {
@@ -137,7 +147,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
                     Some(column) => typecheck_column(column, value)?,
                 }
             }
-            insert_into_table(command.item, &command.table_name, catalog)?;
+            insert_into_table(key, command.item, &command.table_name, catalog)?;
         }
     }
     Ok(())
@@ -159,6 +169,7 @@ fn typecheck_column(column: &ColumnDefinition, value: &PrimitiveValue) -> anyhow
 }
 
 fn insert_into_table(
+    key: String,
     mut item: Item,
     table_name: &str,
     catalog: &mut Catalog,
@@ -186,6 +197,9 @@ fn insert_into_table(
                 }
             }
             write_to_file(table.file_write_handle.clone(), values.join(","))?;
+            table.file_write_handle.flush()?;
+            table.index.insert(key, table.cursor);
+            table.cursor += 1;
         }
     }
     Ok(())

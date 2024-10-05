@@ -44,7 +44,7 @@ mod tests {
 
     use super::*;
 
-    const DB_PATH: &str = "./data/test/dumbdb";
+    const DB_PATH: &str = "data/test/dumbdb";
 
     #[test]
     fn test_create_table() -> anyhow::Result<()> {
@@ -86,6 +86,35 @@ mod tests {
                 &Some(dml::PrimitiveValue::Integer(i))
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_writing_data_updates_index() -> anyhow::Result<()> {
+        let mut db = setup("index_write")?;
+        for i in 0..10 {
+            let author_item = create_put_item(i)?;
+            db.put_item(author_item)?;
+        }
+
+        let table = db.catalog.get_table("authors").unwrap();
+
+        let row_pos = table.index.get("1");
+        assert!(row_pos.is_some());
+        let row_pos = row_pos.unwrap();
+        assert_eq!(row_pos, &1);
+
+        let row_pos = table.index.get("6");
+        assert!(row_pos.is_some());
+        let row_pos = row_pos.unwrap();
+        assert_eq!(row_pos, &6);
+
+        let row_pos = table.index.get("9");
+        assert!(row_pos.is_some());
+        let row_pos = row_pos.unwrap();
+        assert_eq!(row_pos, &9);
+
+        assert_eq!(table.cursor, 10);
         Ok(())
     }
 
