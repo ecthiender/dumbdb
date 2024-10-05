@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::query::ddl::CreateTableCommand;
 
 /// Internal metadata of what tables are there, their schema etc.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct Catalog {
     directory_path: PathBuf,
     catalog_path: PathBuf,

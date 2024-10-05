@@ -1,5 +1,5 @@
 pub use query::ddl::CreateTableCommand;
-pub use query::dml::{GetItemCommand, PutItemCommand};
+pub use query::dml::{GetItemCommand, PutItemCommand, Record};
 use std::path::PathBuf;
 
 use catalog::Catalog;
@@ -10,7 +10,7 @@ mod catalog;
 mod helper;
 mod query;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Database {
     catalog: Catalog,
 }
@@ -81,7 +81,7 @@ mod tests {
         for i in 5..8 {
             let cmd = create_get_item(i)?;
             let record = db.get_item(cmd)?;
-            assert_eq!(&dml::PrimitiveValue::Integer(i), record.get("id").unwrap());
+            assert_eq!(record.get("id").unwrap(), &dml::PrimitiveValue::Integer(i));
         }
         Ok(())
     }

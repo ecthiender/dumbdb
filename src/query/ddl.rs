@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::Catalog;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateTableCommand {
     pub name: String,
     pub columns: Vec<ColumnDefinition>,
@@ -18,13 +18,13 @@ impl CreateTableCommand {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColumnDefinition {
     pub name: String,
     pub r#type: ColumnType,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ColumnType {
     Integer,
     Float,
