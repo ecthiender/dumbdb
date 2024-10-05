@@ -95,11 +95,9 @@ impl Table {
     ) -> anyhow::Result<Self> {
         let table_path = get_table_path_(directory_path, &table_definition.name);
 
-        let (index, cursor) = Self::build_index(&table_path, &table_definition)?;
-
         let write_file = std::fs::OpenOptions::new()
             .append(true)
-            .open(table_path)
+            .open(&table_path)
             .with_context(|| "Could not open file for writing.")?;
 
         let key_position = table_definition
@@ -108,35 +106,34 @@ impl Table {
             .position(|col_def| col_def.name == table_definition.primary_key)
             .with_context(|| "Internal Error: primary key must exist.")?;
 
-        Ok(Self {
+        let mut table = Self {
             name: table_definition.name,
             columns: table_definition.columns,
             primary_key: table_definition.primary_key,
             primary_key_position: key_position,
             file_write_handle: Arc::new(write_file),
-            index,
-            cursor,
-        })
+            index: BTreeMap::new(),
+            cursor: 0,
+        };
+
+        table.build_index(&table_path)?;
+        Ok(table)
     }
 
-    fn build_index(
-        table_path: &Path,
-        table: &CreateTableCommand,
-    ) -> anyhow::Result<(BTreeMap<String, usize>, usize)> {
-        let key_position = table
-            .columns
-            .iter()
-            .position(|col_def| col_def.name == table.primary_key)
-            .with_context(|| "Internal Error: primary key must exist.")?;
-
+    fn build_index(&mut self, table_path: &Path) -> anyhow::Result<()> {
+        let key_position = self.pk_position();
         let contents = fs::read_to_string(table_path)?;
+        self.cursor = contents.len();
+
         let mut index = BTreeMap::new();
         for (row_pos, line) in contents.lines().enumerate() {
             let parts: Vec<_> = line.split(",").collect();
             let index_key = parts[key_position];
             index.insert(index_key.to_string(), row_pos);
         }
-        Ok((index, contents.len()))
+        self.index = index;
+
+        Ok(())
     }
 
     pub fn get_column(&self, name: &str) -> Option<&ColumnDefinition> {

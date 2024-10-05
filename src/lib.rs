@@ -7,7 +7,6 @@ use query::ddl;
 use query::dml;
 
 mod catalog;
-mod helper;
 mod query;
 
 #[derive(Debug, Clone)]
