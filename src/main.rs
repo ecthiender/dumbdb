@@ -22,7 +22,6 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // tracing_subscriber::fmt::init();
     tracing_subscriber::fmt()
         .with_target(false)
         .compact()
@@ -34,6 +33,7 @@ async fn main() {
     // our router
     let app = Router::new()
         .route("/", get(root))
+        .route("/healthz", get(healthz))
         .route("/api/v1/ddl/create_table", post(create_table_handler))
         .route("/api/v1/dml/get_item", post(get_item_handler))
         .route("/api/v1/dml/put_item", post(put_item_handler))
@@ -47,7 +47,7 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    tracing::info!("listening on {}", addr);
+    tracing::info!("dumbdb listening on {}", addr);
     axum::serve(listener, app).await.unwrap();
     //axum::Server::bind(&"127.0.0.1:8080".parse().unwrap())
     //    .serve(app.into_make_service())
@@ -55,9 +55,38 @@ async fn main() {
     //    .unwrap();
 }
 
-// which calls one of these handlers
 async fn root() -> &'static str {
-    "Hello, World!"
+    "dumbdb: Hello, World!"
+}
+
+async fn healthz() -> &'static str {
+    "OK"
+}
+
+async fn create_table_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateTableCommand>,
+) -> Result<Json<SuccessMessage>, AppError> {
+    let mut db = state.db.clone();
+    db.create_table(payload)?;
+    Ok(axum::response::Json(SuccessMessage::new("table created")))
+}
+
+async fn get_item_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<GetItemCommand>,
+) -> Result<Json<Record>, AppError> {
+    let result = state.db.get_item(payload)?;
+    Ok(axum::response::Json(result))
+}
+
+async fn put_item_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PutItemCommand>,
+) -> Result<Json<SuccessMessage>, AppError> {
+    let mut db = state.db.clone();
+    db.put_item(payload)?;
+    Ok(axum::response::Json(SuccessMessage::default()))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,10 +94,18 @@ struct SuccessMessage {
     message: String,
 }
 
+impl SuccessMessage {
+    pub fn new(prefix: &str) -> Self {
+        Self {
+            message: format!("{} successfully.", prefix),
+        }
+    }
+}
+
 impl Default for SuccessMessage {
     fn default() -> Self {
         Self {
-            message: "table created successfully.".to_string(),
+            message: "success".to_string(),
         }
     }
 }
@@ -97,32 +134,7 @@ impl IntoResponse for AppError {
     }
 }
 
-async fn create_table_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<CreateTableCommand>,
-) -> Result<Json<SuccessMessage>, AppError> {
-    let mut db = state.db.clone();
-    db.create_table(payload)?;
-    Ok(axum::response::Json(SuccessMessage::default()))
-}
-
-async fn get_item_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<GetItemCommand>,
-) -> Result<Json<Record>, AppError> {
-    let result = state.db.get_item(payload)?;
-    Ok(axum::response::Json(result))
-}
-
-async fn put_item_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<PutItemCommand>,
-) -> Result<Json<SuccessMessage>, AppError> {
-    state.db.put_item(payload)?;
-    Ok(axum::response::Json(SuccessMessage::default()))
-}
-
-fn other_mn() -> anyhow::Result<()> {
+fn _other_mn() -> anyhow::Result<()> {
     println!("Hello, world! Executing commands in dumbdb ----> ");
     let authors_table = json!({
         "name": "authors",
@@ -143,12 +155,12 @@ fn other_mn() -> anyhow::Result<()> {
     db.create_table(serde_json::from_value(authors_table)?)?;
 
     for i in 0..10000 {
-        let author_item = create_put_item(i)?;
+        let author_item = _create_put_item(i)?;
         db.put_item(author_item)?;
     }
 
     for i in 5672..8764 {
-        let cmd = create_get_item(i)?;
+        let cmd = _create_get_item(i)?;
         let record = db.get_item(cmd)?;
         println!("Get Item of {}: Result: {:?}", i, record);
     }
@@ -156,14 +168,14 @@ fn other_mn() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create_get_item(id: u64) -> anyhow::Result<GetItemCommand> {
+fn _create_get_item(id: u64) -> anyhow::Result<GetItemCommand> {
     Ok(serde_json::from_value(json!({
         "table_name": "authors",
         "key": id.to_string(),
     }))?)
 }
 
-fn create_put_item(id: u64) -> anyhow::Result<PutItemCommand> {
+fn _create_put_item(id: u64) -> anyhow::Result<PutItemCommand> {
     let rand_string: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(30)

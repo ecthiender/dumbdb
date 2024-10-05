@@ -1,4 +1,4 @@
-pub use query::ddl::CreateTableCommand;
+pub use query::ddl::{ColumnDefinition, CreateTableCommand};
 pub use query::dml::{GetItemCommand, PutItemCommand, Record};
 use std::path::PathBuf;
 
@@ -25,8 +25,8 @@ impl Database {
         ddl::create_table(table, &mut self.catalog)
     }
 
-    pub fn put_item(&self, command: dml::PutItemCommand) -> anyhow::Result<()> {
-        dml::put_item(command, &self.catalog)
+    pub fn put_item(&mut self, command: dml::PutItemCommand) -> anyhow::Result<()> {
+        dml::put_item(command, &mut self.catalog)
     }
 
     pub fn get_item(&self, command: dml::GetItemCommand) -> anyhow::Result<dml::Record> {
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_write_data() -> anyhow::Result<()> {
-        let db = setup("write_data")?;
+        let mut db = setup("write_data")?;
         for i in 0..10 {
             let author_item = create_put_item(i)?;
             db.put_item(author_item)?;
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn test_read_data() -> anyhow::Result<()> {
-        let db = setup("read_data")?;
+        let mut db = setup("read_data")?;
         for i in 0..10 {
             let author_item = create_put_item(i)?;
             db.put_item(author_item)?;
@@ -81,7 +81,10 @@ mod tests {
         for i in 5..8 {
             let cmd = create_get_item(i)?;
             let record = db.get_item(cmd)?;
-            assert_eq!(record.get("id").unwrap(), &dml::PrimitiveValue::Integer(i));
+            assert_eq!(
+                record.get("id").unwrap(),
+                &Some(dml::PrimitiveValue::Integer(i))
+            );
         }
         Ok(())
     }

@@ -12,12 +12,6 @@ pub struct CreateTableCommand {
     pub primary_key: String,
 }
 
-impl CreateTableCommand {
-    pub fn get_column(&self, name: &str) -> Option<&ColumnDefinition> {
-        self.columns.iter().find(|col| col.name == name)
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColumnDefinition {
     pub name: String,
