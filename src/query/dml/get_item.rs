@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{self},
+    path::Path,
 };
 
 use anyhow::bail;
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::put_item::PrimitiveValue;
 use crate::{
-    catalog::{Catalog, TableName},
+    catalog::{Catalog, Table, TableName},
     query::ddl::{ColumnDefinition, ColumnName},
 };
 
@@ -20,7 +21,11 @@ pub struct GetItemCommand {
 
 pub type Record = HashMap<ColumnName, Option<PrimitiveValue>>;
 
-pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Option<Record>> {
+pub fn get_item(
+    command: GetItemCommand,
+    catalog: &Catalog,
+    scan_file: bool,
+) -> anyhow::Result<Option<Record>> {
     match catalog.get_table(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
         Some(table) => {
@@ -41,22 +46,48 @@ pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Op
                     None => bail!("ERROR: Internal Error: Could not find item with primary key."),
                     Some(line) => {
                         let record = parse_record(&table.columns, line)?;
-                        return Ok(Some(record));
+                        Ok(Some(record))
                     }
                 }
-            // scan the entire file
+            // if not found in the index
             } else {
-                for line in fs::read_to_string(table_path)?.lines() {
-                    let parts: Vec<_> = line.split(",").collect();
-                    if parts[key_position] == command.key {
-                        let record = parse_record(&table.columns, line)?;
-                        return Ok(Some(record));
-                    }
+                // The index is our main lookup structure; one invariant is all
+                // primary keys are available in the index. Hence if it's not
+                // found in the index; the key doesn't exist. return None
+                //
+                // But.. software bugs are pesky and sometimes hard to predict.
+                // Maybe there's an edge case where the index doesn't have the
+                // key, but the file has it. For those cases, if scan_file flag
+                // is passed then we rescan the entire file.
+                if scan_file {
+                    Ok(scan_entire_file_get_item(
+                        &table_path,
+                        command,
+                        key_position,
+                        table,
+                    )?)
+                } else {
+                    Ok(None)
                 }
             }
-            Ok(None)
         }
     }
+}
+
+fn scan_entire_file_get_item(
+    table_path: &Path,
+    command: GetItemCommand,
+    key_position: usize,
+    table: &Table,
+) -> anyhow::Result<Option<Record>> {
+    for line in fs::read_to_string(table_path)?.lines() {
+        let parts: Vec<_> = line.split(",").collect();
+        if parts[key_position] == command.key {
+            let record = parse_record(&table.columns, line)?;
+            return Ok(Some(record));
+        }
+    }
+    Ok(None)
 }
 
 fn parse_record(columns: &[ColumnDefinition], item: &str) -> anyhow::Result<Record> {

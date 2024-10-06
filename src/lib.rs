@@ -30,7 +30,7 @@ impl Database {
     }
 
     pub fn get_item(&self, command: dml::GetItemCommand) -> anyhow::Result<Option<dml::Record>> {
-        dml::get_item(command, &self.catalog)
+        dml::get_item(command, &self.catalog, false)
     }
 }
 

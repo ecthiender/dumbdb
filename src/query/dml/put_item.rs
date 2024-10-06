@@ -84,7 +84,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
                 table_name: command.table_name.clone(),
                 key: key.clone(),
             };
-            if get_item(cmd, catalog)?.is_some() {
+            if get_item(cmd, catalog, false)?.is_some() {
                 bail!("ERROR: Item with primary key '{}' already exists.", key);
             }
 
