@@ -20,7 +20,7 @@ pub struct GetItemCommand {
 
 pub type Record = HashMap<ColumnName, Option<PrimitiveValue>>;
 
-pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Record> {
+pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Option<Record>> {
     match catalog.get_table(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
         Some(table) => {
@@ -41,7 +41,7 @@ pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Re
                     None => bail!("ERROR: Internal Error: Could not find item with primary key."),
                     Some(line) => {
                         let record = parse_record(&table.columns, line)?;
-                        return Ok(record);
+                        return Ok(Some(record));
                     }
                 }
             // scan the entire file
@@ -50,11 +50,11 @@ pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Re
                     let parts: Vec<_> = line.split(",").collect();
                     if parts[key_position] == command.key {
                         let record = parse_record(&table.columns, line)?;
-                        return Ok(record);
+                        return Ok(Some(record));
                     }
                 }
             }
-            bail!("ERROR: Internal Error: Could not find item with primary key.");
+            Ok(None)
         }
     }
 }

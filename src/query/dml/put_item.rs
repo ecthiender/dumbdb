@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     catalog::{Catalog, TableName},
     query::ddl::{ColumnDefinition, ColumnName, ColumnType},
+    GetItemCommand,
 };
+
+use super::get_item;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PutItemCommand {
@@ -16,7 +19,7 @@ pub struct PutItemCommand {
 
 pub type Item = HashMap<ColumnName, PrimitiveValue>;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(untagged)]
 pub enum PrimitiveValue {
     Integer(u64),
@@ -76,6 +79,15 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
                 ),
                 Some(primary_key_value) => primary_key_value.to_storage_format(),
             };
+            // check to see if this primary key already exists
+            let cmd = GetItemCommand {
+                table_name: command.table_name.clone(),
+                key: key.clone(),
+            };
+            if get_item(cmd, catalog)?.is_some() {
+                bail!("ERROR: Item with primary key '{}' already exists.", key);
+            }
+
             // check if item data is valid
             for (column_name, value) in &command.item {
                 match table.get_column(column_name) {

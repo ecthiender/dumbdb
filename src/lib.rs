@@ -29,7 +29,7 @@ impl Database {
         dml::put_item(command, &mut self.catalog)
     }
 
-    pub fn get_item(&self, command: dml::GetItemCommand) -> anyhow::Result<dml::Record> {
+    pub fn get_item(&self, command: dml::GetItemCommand) -> anyhow::Result<Option<dml::Record>> {
         dml::get_item(command, &self.catalog)
     }
 }
@@ -81,12 +81,40 @@ mod tests {
         }
         for i in 5..8 {
             let cmd = create_get_item(i)?;
-            let record = db.get_item(cmd)?;
+            let record = db.get_item(cmd)?.unwrap();
             assert_eq!(
                 record.get(&"id".into()).unwrap(),
                 &Some(PrimitiveValue::Integer(i))
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_writes_with_same_id() -> anyhow::Result<()> {
+        let mut db = setup("write_data_same_id")?;
+
+        // insert one record; and read it
+        let id = 42;
+        let put_item_1 = create_put_item(id)?;
+        let generated_name = put_item_1.item.get(&"name".into()).cloned();
+        db.put_item(put_item_1)?;
+        let get_item = create_get_item(id)?;
+        let record = db.get_item(get_item)?.unwrap();
+        assert_eq!(
+            record.get(&"id".into()).unwrap(),
+            &Some(PrimitiveValue::Integer(id))
+        );
+        assert_eq!(record.get(&"name".into()).unwrap(), &generated_name);
+
+        // insert another record with same id; it should overwrite the old data
+        let put_item_2 = create_put_item(id)?;
+        let res = db.put_item(put_item_2).map_err(|e| e.to_string());
+        assert_eq!(
+            res,
+            Err("ERROR: Item with primary key '42' already exists.".to_string())
+        );
+
         Ok(())
     }
 

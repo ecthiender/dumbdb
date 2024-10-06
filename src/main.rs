@@ -79,7 +79,7 @@ async fn create_table_handler(
 async fn get_item_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<GetItemCommand>,
-) -> Result<Json<Record>, AppError> {
+) -> Result<Json<Option<Record>>, AppError> {
     let result = state.db.get_item(payload)?;
     Ok(axum::response::Json(result))
 }
