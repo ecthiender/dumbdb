@@ -1,10 +1,11 @@
-pub use query::ddl::{ColumnDefinition, CreateTableCommand};
-pub use query::dml::{GetItemCommand, PutItemCommand, Record};
 use std::path::PathBuf;
 
 use catalog::Catalog;
 use query::ddl;
 use query::dml;
+
+pub use ddl::CreateTableCommand;
+pub use dml::{GetItemCommand, PutItemCommand, Record};
 
 mod catalog;
 mod query;
@@ -38,6 +39,7 @@ mod tests {
     use std::fs;
 
     use anyhow::Context;
+    use dml::put_item::PrimitiveValue;
     use rand::Rng;
     use serde_json::json;
 
@@ -80,10 +82,7 @@ mod tests {
         for i in 5..8 {
             let cmd = create_get_item(i)?;
             let record = db.get_item(cmd)?;
-            assert_eq!(
-                record.get("id").unwrap(),
-                &Some(dml::PrimitiveValue::Integer(i))
-            );
+            assert_eq!(record.get("id").unwrap(), &Some(PrimitiveValue::Integer(i)));
         }
         Ok(())
     }

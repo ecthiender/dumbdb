@@ -3,13 +3,13 @@ use std::{
     fs::{self, File},
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::{query::ddl::CreateTableCommand, ColumnDefinition};
+use crate::query::ddl::{ColumnDefinition, CreateTableCommand};
 
 /// Internal metadata of what tables are there, their schema etc. that we can
 /// serialize to disk.
@@ -82,7 +82,7 @@ pub(crate) struct Table {
     pub(crate) name: String,
     pub(crate) columns: Vec<ColumnDefinition>,
     pub(crate) primary_key: String,
-    pub(crate) file_write_handle: Arc<File>,
+    pub(crate) file_handle: Arc<RwLock<File>>,
     pub(crate) index: BTreeMap<String, usize>,
     pub(crate) cursor: usize,
     primary_key_position: usize,
@@ -111,7 +111,7 @@ impl Table {
             columns: table_definition.columns,
             primary_key: table_definition.primary_key,
             primary_key_position: key_position,
-            file_write_handle: Arc::new(write_file),
+            file_handle: Arc::new(RwLock::new(write_file)),
             index: BTreeMap::new(),
             cursor: 0,
         };

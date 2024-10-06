@@ -1,16 +1,12 @@
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    fs::{self, File},
-    io::Write,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Display, fs::File, io::Write};
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use super::ddl::{ColumnDefinition, ColumnType};
-use crate::catalog::Catalog;
+use crate::{
+    catalog::Catalog,
+    query::ddl::{ColumnDefinition, ColumnType},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PutItemCommand {
@@ -19,7 +15,6 @@ pub struct PutItemCommand {
 }
 
 pub type Item = HashMap<String, PrimitiveValue>;
-pub type Record = HashMap<String, Option<PrimitiveValue>>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -50,7 +45,7 @@ impl PrimitiveValue {
             Self::Text(val) => val.to_string(),
         }
     }
-    fn from_string(value: String) -> Option<Self> {
+    pub fn from_string(value: String) -> Option<Self> {
         if value == "NULL" || value.is_empty() {
             None
         } else {
@@ -66,61 +61,6 @@ impl PrimitiveValue {
             })
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GetItemCommand {
-    pub table_name: String,
-    pub key: String,
-}
-
-pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Record> {
-    match catalog.get_table(&command.table_name) {
-        None => bail!("Table name '{}' doesn't exist.", command.table_name),
-        Some(table) => {
-            let key_position = table.pk_position();
-            let table_path = catalog.get_table_path(&command.table_name);
-            if !table_path.exists() {
-                bail!(
-                    "FATAL: Internal Error: Table filepath does not exist: {}",
-                    table_path.display()
-                );
-            }
-
-            // read from the index; get the cursor
-            if let Some(cursor) = table.index.get(&command.key) {
-                // read from the file
-                let contents = fs::read_to_string(table_path)?;
-                match contents.lines().nth(*cursor) {
-                    None => bail!("ERROR: Internal Error: Could not find item with primary key."),
-                    Some(line) => {
-                        let record = parse_record(&table.columns, line)?;
-                        return Ok(record);
-                    }
-                }
-            // scan the entire file
-            } else {
-                for line in fs::read_to_string(table_path)?.lines() {
-                    let parts: Vec<_> = line.split(",").collect();
-                    if parts[key_position] == command.key {
-                        let record = parse_record(&table.columns, line)?;
-                        return Ok(record);
-                    }
-                }
-            }
-            bail!("ERROR: Internal Error: Could not find item with primary key.");
-        }
-    }
-}
-
-fn parse_record(columns: &[ColumnDefinition], item: &str) -> anyhow::Result<Record> {
-    let mut result = HashMap::new();
-    for (idx, part) in item.split(",").enumerate() {
-        let col_name = columns[idx].name.clone();
-        let val = PrimitiveValue::from_string(part.to_string());
-        result.insert(col_name, val);
-    }
-    Ok(result)
 }
 
 pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Result<()> {
@@ -192,8 +132,9 @@ fn insert_into_table(
                     Some(val) => values.push(val.to_storage_format()),
                 }
             }
-            write_to_file(table.file_write_handle.clone(), values.join(","))?;
-            table.file_write_handle.flush()?;
+            let mut fh = table.file_handle.write().unwrap();
+            write_to_file(&mut fh, values.join(","))?;
+            fh.flush()?;
             table.index.insert(key, table.cursor);
             table.cursor += 1;
         }
@@ -201,7 +142,7 @@ fn insert_into_table(
     Ok(())
 }
 
-fn write_to_file(mut file: Arc<File>, data: String) -> anyhow::Result<()> {
+fn write_to_file(file: &mut File, data: String) -> anyhow::Result<()> {
     writeln!(file, "{}", data)
         .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
     let _ = file.flush();
