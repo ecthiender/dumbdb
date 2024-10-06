@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs::{self, File},
+    fs::File,
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -10,7 +10,11 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
-use crate::query::ddl::{ColumnDefinition, ColumnName, CreateTableCommand};
+use crate::query::{
+    ddl::{ColumnDefinition, ColumnName, CreateTableCommand},
+    dml::get_item::read_from_file,
+};
+use crate::storage::{deserialize_binary, Tuple};
 
 /// Internal metadata of what tables are there, their schema etc. that we can
 /// serialize to disk.
@@ -126,6 +130,7 @@ impl Table {
         let table_path = get_table_path_(directory_path, &table_definition.name);
 
         let write_file = std::fs::OpenOptions::new()
+            .read(true)
             .append(true)
             .open(&table_path)
             .with_context(|| "Could not open file for writing.")?;
@@ -152,17 +157,20 @@ impl Table {
 
     fn build_index(&mut self, table_path: &Path) -> anyhow::Result<()> {
         let key_position = self.pk_position();
-        let contents = fs::read_to_string(table_path)?;
-        self.cursor = contents.len();
-
         let mut index = BTreeMap::new();
-        for (row_pos, line) in contents.lines().enumerate() {
-            let parts: Vec<_> = line.split(",").collect();
-            let index_key = parts[key_position];
-            index.insert(index_key.to_string(), row_pos);
+        // read from the file
+        let reader = read_from_file(table_path)?;
+        for (row_pos, line) in reader.enumerate() {
+            let line = line?;
+            let tuple: Tuple = deserialize_binary(line)?;
+            let index_key = tuple[key_position]
+                .clone()
+                .with_context(|| "invariant violation: primary key value not found in tuple.")?;
+            index.insert(index_key.to_storage_format(), row_pos);
+            self.cursor = row_pos;
         }
         self.index = index;
-
+        dbg!(&self.index);
         Ok(())
     }
 

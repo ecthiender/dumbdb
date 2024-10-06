@@ -7,8 +7,10 @@ use query::dml;
 pub use ddl::CreateTableCommand;
 pub use dml::{GetItemCommand, PutItemCommand, Record};
 
+pub mod byte_lines;
 mod catalog;
 mod query;
+pub mod storage;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -36,12 +38,17 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{
+        fs::{self, File},
+        io::BufReader,
+    };
 
     use anyhow::Context;
+    use byte_lines::ByteLines;
     use dml::put_item::PrimitiveValue;
     use rand::Rng;
     use serde_json::json;
+    use storage::{deserialize_binary, Tuple};
 
     use super::*;
 
@@ -62,13 +69,17 @@ mod tests {
             db.put_item(author_item)?;
         }
         let table_path = db.catalog.get_table_path(&"authors".into());
-        let contents = fs::read_to_string(table_path)?;
-        let last_line = contents
-            .lines()
-            .filter(|x| !x.is_empty())
+        let file_handle = File::open(table_path)?;
+        let reader = BufReader::new(file_handle);
+        let bytelines = ByteLines::new(reader);
+
+        let last_line = bytelines
             .last()
             .with_context(|| "There should be 10 rows written")?;
-        assert!(last_line.to_string().starts_with("9,"));
+        let last_line = last_line?;
+        let tuple: Tuple = deserialize_binary(last_line)?;
+        let values: Vec<_> = tuple.into_iter().flatten().collect();
+        assert_eq!(values[0], PrimitiveValue::Integer(9));
         Ok(())
     }
 
@@ -183,8 +194,9 @@ mod tests {
     }
 
     fn create_put_item(id: u64) -> anyhow::Result<dml::PutItemCommand> {
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        const STRING_LEN: usize = 10;
+        const CHARSET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 )(*&^%$#@!~\"',;";
+        const STRING_LEN: usize = 20;
         let mut rng = rand::thread_rng();
         let rand_string: String = (0..STRING_LEN)
             .map(|_| {

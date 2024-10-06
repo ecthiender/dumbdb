@@ -3,6 +3,7 @@ use std::{collections::HashMap, fmt::Display, fs::File, io::Write};
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
+use crate::storage::{serialize_binary, Tuple};
 use crate::{
     catalog::{Catalog, TableName},
     query::ddl::{ColumnDefinition, ColumnName, ColumnType},
@@ -40,7 +41,7 @@ impl Display for PrimitiveValue {
 }
 
 impl PrimitiveValue {
-    fn to_storage_format(&self) -> String {
+    pub fn to_storage_format(&self) -> String {
         match self {
             Self::Integer(val) => val.to_string(),
             Self::Float(val) => val.to_string(),
@@ -98,6 +99,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
             insert_into_table(key, command.item, &command.table_name, catalog)?;
         }
     }
+    dbg!(&catalog.get_table(&command.table_name).unwrap().index);
     Ok(())
 }
 
@@ -136,9 +138,11 @@ fn insert_into_table(
             table_name
         ),
         Some(table) => {
-            let row_data = convert_item_to_storage(item, &table.columns);
+            let row_data = item_to_tuple(item, &table.columns);
             let mut fh = table.file_handle.write().unwrap();
-            write_to_file(&mut fh, row_data)?;
+            write_to_file(&mut fh, serialize_binary(&row_data)?)?;
+            dbg!(&key);
+            dbg!(&table.cursor);
             table.index.insert(key, table.cursor);
             table.cursor += 1;
         }
@@ -148,20 +152,18 @@ fn insert_into_table(
 
 /// Convert the values given in an 'Item' to the storage format; consults the
 /// `ColumnDefinition`s to serialize appropriately.
-fn convert_item_to_storage(mut item: Item, columns: &[ColumnDefinition]) -> String {
+fn item_to_tuple(mut item: Item, columns: &[ColumnDefinition]) -> Tuple {
     let mut values = vec![];
     for column in columns {
         let value = item.remove(&column.name);
-        match value {
-            None => values.push("NULL".to_string()),
-            Some(val) => values.push(val.to_storage_format()),
-        }
+        values.push(value);
     }
-    values.join(",")
+    values
 }
 
-fn write_to_file(file: &mut File, data: String) -> anyhow::Result<()> {
-    writeln!(file, "{}", data)
+fn write_to_file(file: &mut File, mut data: Vec<u8>) -> anyhow::Result<()> {
+    data.push(b'\n');
+    file.write_all(&data)
         .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
     file.flush()?;
     file.sync_all()?;
