@@ -8,8 +8,9 @@ use std::{
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
-use crate::query::ddl::{ColumnDefinition, CreateTableCommand};
+use crate::query::ddl::{ColumnDefinition, ColumnName, CreateTableCommand};
 
 /// Internal metadata of what tables are there, their schema etc. that we can
 /// serialize to disk.
@@ -50,15 +51,15 @@ impl Catalog {
         })
     }
 
-    pub(crate) fn get_table(&self, name: &str) -> Option<&Table> {
-        self.tables.iter().find(|&table| table.name == name)
+    pub(crate) fn get_table(&self, name: &TableName) -> Option<&Table> {
+        self.tables.iter().find(|&table| table.name == *name)
     }
 
-    pub(crate) fn get_table_mut(&mut self, name: &str) -> Option<&mut Table> {
-        self.tables.iter_mut().find(|table| table.name == name)
+    pub(crate) fn get_table_mut(&mut self, name: &TableName) -> Option<&mut Table> {
+        self.tables.iter_mut().find(|table| table.name == *name)
     }
 
-    pub(crate) fn get_table_path(&self, table_name: &str) -> PathBuf {
+    pub(crate) fn get_table_path(&self, table_name: &TableName) -> PathBuf {
         get_table_path_(&self.directory_path, table_name)
     }
 
@@ -79,13 +80,42 @@ impl Catalog {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Table {
-    pub(crate) name: String,
+    pub(crate) name: TableName,
     pub(crate) columns: Vec<ColumnDefinition>,
-    pub(crate) primary_key: String,
+    pub(crate) primary_key: ColumnName,
     pub(crate) file_handle: Arc<RwLock<File>>,
     pub(crate) index: BTreeMap<String, usize>,
     pub(crate) cursor: usize,
     primary_key_position: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::Display)]
+#[serde(into = "String")]
+#[serde(from = "String")]
+pub struct TableName(pub SmolStr);
+
+impl From<&str> for TableName {
+    fn from(value: &str) -> Self {
+        TableName::new(value)
+    }
+}
+
+impl From<String> for TableName {
+    fn from(value: String) -> Self {
+        TableName::new(&value)
+    }
+}
+
+impl From<TableName> for String {
+    fn from(val: TableName) -> Self {
+        val.0.to_string()
+    }
+}
+
+impl TableName {
+    pub fn new(value: &str) -> Self {
+        Self(SmolStr::new(value))
+    }
 }
 
 impl Table {
@@ -136,8 +166,8 @@ impl Table {
         Ok(())
     }
 
-    pub fn get_column(&self, name: &str) -> Option<&ColumnDefinition> {
-        self.columns.iter().find(|col| col.name == name)
+    pub fn get_column(&self, name: &ColumnName) -> Option<&ColumnDefinition> {
+        self.columns.iter().find(|col| col.name == *name)
     }
 
     pub fn pk_position(&self) -> usize {
@@ -156,8 +186,8 @@ impl<'a> From<&'a Table> for CreateTableCommand {
 }
 
 // helpers
-fn get_table_path_(directory_path: &Path, table_name: &str) -> PathBuf {
-    let table_rel_path = PathBuf::from(format!("{}.tbl", table_name));
+fn get_table_path_(directory_path: &Path, table_name: &TableName) -> PathBuf {
+    let table_rel_path = PathBuf::from(format!("{}.tbl", table_name.0.as_str()));
     directory_path.join(table_rel_path)
 }
 

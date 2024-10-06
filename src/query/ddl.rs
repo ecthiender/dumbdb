@@ -2,20 +2,50 @@ use std::{fmt::Display, fs::File};
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
-use crate::catalog::Catalog;
+use crate::catalog::{Catalog, TableName};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateTableCommand {
-    pub name: String,
+    pub name: TableName,
     pub columns: Vec<ColumnDefinition>,
-    pub primary_key: String,
+    pub primary_key: ColumnName,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColumnDefinition {
-    pub name: String,
+    pub name: ColumnName,
     pub r#type: ColumnType,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::Display, Eq, Hash)]
+#[serde(into = "String")]
+#[serde(from = "String")]
+pub struct ColumnName(pub SmolStr);
+
+impl From<&str> for ColumnName {
+    fn from(value: &str) -> Self {
+        ColumnName::new(value)
+    }
+}
+
+impl From<String> for ColumnName {
+    fn from(value: String) -> Self {
+        ColumnName::new(&value)
+    }
+}
+
+impl From<ColumnName> for String {
+    fn from(val: ColumnName) -> Self {
+        val.0.to_string()
+    }
+}
+
+impl ColumnName {
+    pub fn new(value: &str) -> Self {
+        Self(SmolStr::new(value))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

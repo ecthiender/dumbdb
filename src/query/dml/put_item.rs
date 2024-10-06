@@ -4,17 +4,17 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    catalog::Catalog,
-    query::ddl::{ColumnDefinition, ColumnType},
+    catalog::{Catalog, TableName},
+    query::ddl::{ColumnDefinition, ColumnName, ColumnType},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PutItemCommand {
-    pub table_name: String,
+    pub table_name: TableName,
     pub item: Item,
 }
 
-pub type Item = HashMap<String, PrimitiveValue>;
+pub type Item = HashMap<ColumnName, PrimitiveValue>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -106,8 +106,8 @@ fn typecheck_column(column: &ColumnDefinition, value: &PrimitiveValue) -> anyhow
 
 fn insert_into_table(
     key: String,
-    mut item: Item,
-    table_name: &str,
+    item: Item,
+    table_name: &TableName,
     catalog: &mut Catalog,
 ) -> anyhow::Result<()> {
     let table_path = catalog.get_table_path(table_name);
@@ -124,17 +124,9 @@ fn insert_into_table(
             table_name
         ),
         Some(table) => {
-            let mut values = vec![];
-            for column in &table.columns {
-                let value = item.remove(&column.name);
-                match value {
-                    None => values.push("NULL".to_string()),
-                    Some(val) => values.push(val.to_storage_format()),
-                }
-            }
+            let row_data = convert_item_to_storage(item, &table.columns);
             let mut fh = table.file_handle.write().unwrap();
-            write_to_file(&mut fh, values.join(","))?;
-            fh.flush()?;
+            write_to_file(&mut fh, row_data)?;
             table.index.insert(key, table.cursor);
             table.cursor += 1;
         }
@@ -142,9 +134,24 @@ fn insert_into_table(
     Ok(())
 }
 
+/// Convert the values given in an 'Item' to the storage format; consults the
+/// `ColumnDefinition`s to serialize appropriately.
+fn convert_item_to_storage(mut item: Item, columns: &[ColumnDefinition]) -> String {
+    let mut values = vec![];
+    for column in columns {
+        let value = item.remove(&column.name);
+        match value {
+            None => values.push("NULL".to_string()),
+            Some(val) => values.push(val.to_storage_format()),
+        }
+    }
+    values.join(",")
+}
+
 fn write_to_file(file: &mut File, data: String) -> anyhow::Result<()> {
     writeln!(file, "{}", data)
         .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
-    let _ = file.flush();
+    file.flush()?;
+    file.sync_all()?;
     Ok(())
 }

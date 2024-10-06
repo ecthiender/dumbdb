@@ -7,15 +7,18 @@ use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
 use super::put_item::PrimitiveValue;
-use crate::{catalog::Catalog, query::ddl::ColumnDefinition};
+use crate::{
+    catalog::{Catalog, TableName},
+    query::ddl::{ColumnDefinition, ColumnName},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetItemCommand {
-    pub table_name: String,
+    pub table_name: TableName,
     pub key: String,
 }
 
-pub type Record = HashMap<String, Option<PrimitiveValue>>;
+pub type Record = HashMap<ColumnName, Option<PrimitiveValue>>;
 
 pub fn get_item(command: GetItemCommand, catalog: &Catalog) -> anyhow::Result<Record> {
     match catalog.get_table(&command.table_name) {

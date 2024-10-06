@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn test_create_table() -> anyhow::Result<()> {
         let db = setup("create_table")?;
-        assert!(db.catalog.get_table("authors").is_some());
+        assert!(db.catalog.get_table(&"authors".into()).is_some());
         Ok(())
     }
 
@@ -61,7 +61,7 @@ mod tests {
             let author_item = create_put_item(i)?;
             db.put_item(author_item)?;
         }
-        let table_path = db.catalog.get_table_path("authors");
+        let table_path = db.catalog.get_table_path(&"authors".into());
         let contents = fs::read_to_string(table_path)?;
         let last_line = contents
             .lines()
@@ -82,7 +82,10 @@ mod tests {
         for i in 5..8 {
             let cmd = create_get_item(i)?;
             let record = db.get_item(cmd)?;
-            assert_eq!(record.get("id").unwrap(), &Some(PrimitiveValue::Integer(i)));
+            assert_eq!(
+                record.get(&"id".into()).unwrap(),
+                &Some(PrimitiveValue::Integer(i))
+            );
         }
         Ok(())
     }
@@ -95,7 +98,7 @@ mod tests {
             db.put_item(author_item)?;
         }
 
-        let table = db.catalog.get_table("authors").unwrap();
+        let table = db.catalog.get_table(&"authors".into()).unwrap();
 
         let row_pos = table.index.get("1");
         assert!(row_pos.is_some());
