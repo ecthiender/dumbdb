@@ -4,7 +4,7 @@ It's a dumb database.
 
 ## Storage
 
-Stores one file per table on disk. Stores it in CSV format.
+Stores one file per table on disk. Stores it in binary format.
 
 ## Flow
 

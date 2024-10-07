@@ -1,9 +1,9 @@
-use std::{collections::HashMap, fmt::Display, fs::File, io::Write};
+use std::{collections::HashMap, fmt::Display};
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{serialize_binary, Tuple};
+use crate::storage::{Block, Tuple};
 use crate::{
     catalog::{Catalog, TableName},
     query::ddl::{ColumnDefinition, ColumnName, ColumnType},
@@ -131,18 +131,16 @@ fn insert_into_table(
             table_path.display()
         );
     }
-
     match catalog.get_table_mut(table_name) {
         None => bail!(
             "FATAL: Internal Error: Expected table {} to be present",
             table_name
         ),
         Some(table) => {
-            let row_data = item_to_tuple(item, &table.columns);
-            let mut fh = table.file_handle.write().unwrap();
-            write_to_file(&mut fh, serialize_binary(&row_data)?)?;
-            dbg!(&key);
-            dbg!(&table.cursor);
+            let tuple = item_to_tuple(item, &table.columns);
+            // TODO: initialize Block only once
+            let mut block = Block::new(&table_path)?;
+            block.write(tuple)?;
             table.index.insert(key, table.cursor);
             table.cursor += 1;
         }
@@ -159,13 +157,4 @@ fn item_to_tuple(mut item: Item, columns: &[ColumnDefinition]) -> Tuple {
         values.push(value);
     }
     values
-}
-
-fn write_to_file(file: &mut File, mut data: Vec<u8>) -> anyhow::Result<()> {
-    data.push(b'\n');
-    file.write_all(&data)
-        .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
-    file.flush()?;
-    file.sync_all()?;
-    Ok(())
 }

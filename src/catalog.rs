@@ -3,18 +3,16 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
-    sync::{Arc, RwLock},
 };
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
-use crate::query::{
-    ddl::{ColumnDefinition, ColumnName, CreateTableCommand},
-    dml::get_item::read_from_file,
+use crate::{
+    query::ddl::{ColumnDefinition, ColumnName, CreateTableCommand},
+    storage::Block,
 };
-use crate::storage::{deserialize_binary, Tuple};
 
 /// Internal metadata of what tables are there, their schema etc. that we can
 /// serialize to disk.
@@ -87,7 +85,6 @@ pub(crate) struct Table {
     pub(crate) name: TableName,
     pub(crate) columns: Vec<ColumnDefinition>,
     pub(crate) primary_key: ColumnName,
-    pub(crate) file_handle: Arc<RwLock<File>>,
     pub(crate) index: BTreeMap<String, usize>,
     pub(crate) cursor: usize,
     primary_key_position: usize,
@@ -129,12 +126,6 @@ impl Table {
     ) -> anyhow::Result<Self> {
         let table_path = get_table_path_(directory_path, &table_definition.name);
 
-        let write_file = std::fs::OpenOptions::new()
-            .read(true)
-            .append(true)
-            .open(&table_path)
-            .with_context(|| "Could not open file for writing.")?;
-
         let key_position = table_definition
             .columns
             .iter()
@@ -146,7 +137,6 @@ impl Table {
             columns: table_definition.columns,
             primary_key: table_definition.primary_key,
             primary_key_position: key_position,
-            file_handle: Arc::new(RwLock::new(write_file)),
             index: BTreeMap::new(),
             cursor: 0,
         };
@@ -158,11 +148,9 @@ impl Table {
     fn build_index(&mut self, table_path: &Path) -> anyhow::Result<()> {
         let key_position = self.pk_position();
         let mut index = BTreeMap::new();
-        // read from the file
-        let reader = read_from_file(table_path)?;
-        for (row_pos, line) in reader.enumerate() {
-            let line = line?;
-            let tuple: Tuple = deserialize_binary(line)?;
+        let block = Block::new(&table_path.into())?;
+        for (row_pos, tuple) in block.get_reader()?.enumerate() {
+            let tuple = tuple?;
             let index_key = tuple[key_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;

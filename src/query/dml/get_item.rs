@@ -1,14 +1,13 @@
-use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use super::put_item::PrimitiveValue;
 use crate::{
-    byte_lines::ByteLines,
     catalog::{Catalog, Table, TableName},
     query::ddl::{ColumnDefinition, ColumnName},
-    storage::{deserialize_binary, Tuple},
+    storage::{Block, Tuple},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,12 +39,10 @@ pub fn get_item(
             // read from the index; get the cursor
             dbg!(&command.key);
             if let Some(cursor) = table.index.get(&command.key) {
-                // read from the file
-                let mut reader = read_from_file(&table_path)?;
-                match reader.nth(*cursor) {
+                let block = Block::new(&table_path)?;
+                match block.seek_to(*cursor)? {
                     None => bail!("ERROR: Internal Error: Could not find item with primary key."),
                     Some(line) => {
-                        let line = line?;
                         let record = parse_record(&table.columns, line)?;
                         Ok(Some(record))
                     }
@@ -81,36 +78,22 @@ fn scan_entire_file_get_item(
     key_position: usize,
     table: &Table,
 ) -> anyhow::Result<Option<Record>> {
-    // read from the file
-    let reader = read_from_file(table_path)?;
-    for line in reader.into_iter() {
-        let line = line?;
-        let tuple: Tuple = deserialize_binary(line)?;
+    // TODO: initialize Block only once
+    let block = Block::new(&table_path.into())?;
+    for tuple in block.get_reader()? {
+        let tuple = tuple?;
         let key = tuple[key_position]
             .clone()
             .with_context(|| "invariant violation: primary key value not found in tuple.")?;
         if key.to_storage_format() == command.key {
-            let record = parse_record_from_tuple(&table.columns, tuple)?;
+            let record = parse_record(&table.columns, tuple)?;
             return Ok(Some(record));
         }
     }
     Ok(None)
 }
 
-pub fn read_from_file(table_path: &Path) -> anyhow::Result<ByteLines<BufReader<File>>> {
-    // read from the file
-    let file_handle = File::open(table_path)?;
-    let reader = BufReader::new(file_handle);
-    let bytelines = ByteLines::new(reader);
-    Ok(bytelines)
-}
-
-fn parse_record(columns: &[ColumnDefinition], item: Vec<u8>) -> anyhow::Result<Record> {
-    let result: Tuple = deserialize_binary(item)?;
-    parse_record_from_tuple(columns, result)
-}
-
-fn parse_record_from_tuple(columns: &[ColumnDefinition], item: Tuple) -> anyhow::Result<Record> {
+fn parse_record(columns: &[ColumnDefinition], item: Tuple) -> anyhow::Result<Record> {
     let mut record = HashMap::new();
     for (idx, value) in item.into_iter().enumerate() {
         let col_name = columns[idx].name.clone();

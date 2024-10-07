@@ -1,20 +1,85 @@
 /// A dumb, barebones storage engine for dumbdb
 use std::{
     fs::File,
-    io::{Cursor, Write},
+    io::{BufReader, Cursor, Write},
+    path::PathBuf,
 };
 
 use anyhow::Context;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+use crate::byte_lines::ByteLines;
 use crate::query::dml::put_item::PrimitiveValue;
 
-// A tuple is a vector of values. Well, possible values (hence Option<Value>).
+/// A tuple is a list of values (well, possible values, hence `Option<..>`). In
+/// other words, this is a row of data.
 pub type Tuple = Vec<Option<PrimitiveValue>>;
 
-// A block is like a table (more like a slice of a table); its a list of tuples.
-pub type Block = Vec<Tuple>;
+/// A block is like a table (more like a slice of a table); its a list of
+/// tuples. This is atomic unit in our storage engine.
+///
+/// But in practice, it is used to represent an entire table. And is backed by
+/// one single file on disk.
+///
+/// This manages storage of the table data on disk. And exposes APIs to write
+/// new data, seek to a specific row offset, and read all of the contents of the
+/// block as an iterator fashion.
+/// Note: it does not provide any API to delete or update data.
+pub struct Block {
+    // file path of the file on disk
+    file_path: PathBuf,
+    // file handle
+    file: File,
+}
+
+impl Block {
+    pub fn new(table_path: &PathBuf) -> anyhow::Result<Self> {
+        let file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(table_path)
+            .with_context(|| "Could not open file for writing.")?;
+
+        Ok(Self {
+            file_path: table_path.clone(),
+            file,
+        })
+    }
+
+    pub fn seek_to(&self, cursor: usize) -> anyhow::Result<Option<Tuple>> {
+        let mut reader = self.get_reader()?;
+        let tuple = reader.nth(cursor).transpose()?;
+        Ok(tuple)
+    }
+
+    // get an iterator over the file to read line by line
+    pub fn get_reader(&self) -> anyhow::Result<impl Iterator<Item = Result<Tuple, anyhow::Error>>> {
+        let file = File::open(&self.file_path)?;
+        let reader = BufReader::new(file);
+        let bytelines = ByteLines::new(reader);
+
+        // we have a ByteLines iterator; we map it to a Tuple iterator
+        Ok(bytelines.into_iter().map(|line| {
+            let line = line?;
+            let data: Tuple = deserialize_binary(line)?;
+            Ok::<Tuple, anyhow::Error>(data)
+        }))
+    }
+
+    pub fn write(&mut self, tuple: Tuple) -> anyhow::Result<()> {
+        self.write_to_file(serialize_binary(&tuple)?)
+    }
+
+    fn write_to_file(&mut self, mut data: Vec<u8>) -> anyhow::Result<()> {
+        data.push(b'\n');
+        self.file
+            .write_all(&data)
+            .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
+        self.file.flush()?;
+        self.file.sync_all()?;
+        Ok(())
+    }
+}
 
 pub fn serialize_binary<T>(value: &T) -> anyhow::Result<Vec<u8>>
 where
@@ -32,13 +97,4 @@ where
     let mut de = Deserializer::new(Cursor::new(&value));
     let data = Deserialize::deserialize(&mut de)?;
     Ok(data)
-}
-
-fn write_to_file(file: &mut File, mut data: Vec<u8>) -> anyhow::Result<()> {
-    data.push(b'\n');
-    file.write_all(&data)
-        .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
-    file.flush()?;
-    file.sync_all()?;
-    Ok(())
 }
