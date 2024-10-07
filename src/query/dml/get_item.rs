@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use super::put_item::PrimitiveValue;
 use crate::{
-    catalog::{Catalog, Table, TableName},
-    query::ddl::{ColumnDefinition, ColumnName},
+    catalog::{Catalog, Table},
+    query::types::{ColumnDefinition, ColumnName, ColumnValue, TableName},
     storage::Tuple,
 };
 
@@ -16,7 +15,7 @@ pub struct GetItemCommand {
     pub key: String,
 }
 
-pub type Record = HashMap<ColumnName, Option<PrimitiveValue>>;
+pub type Record = HashMap<ColumnName, Option<ColumnValue>>;
 
 pub fn get_item(
     command: GetItemCommand,
@@ -34,6 +33,8 @@ pub fn get_item(
                 );
             }
             // read from the index; get the cursor
+            dbg!(&table.index);
+            dbg!(&command.key);
             if let Some(cursor) = table.index.get(&command.key) {
                 match table.block.seek_to(*cursor)? {
                     None => bail!("ERROR: Internal Error: Could not find item with primary key."),
@@ -72,7 +73,7 @@ fn scan_entire_file_get_item(
         let key = tuple[key_position]
             .clone()
             .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-        if key.to_storage_format() == command.key {
+        if key.to_string() == command.key {
             let record = parse_record(&table.columns, tuple)?;
             return Ok(Some(record));
         }

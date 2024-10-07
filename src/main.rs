@@ -17,7 +17,7 @@ use serde_json::json;
 use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
 
-use dumbdb::{CreateTableCommand, Database, GetItemCommand, PutItemCommand, Record};
+use dumbdb::{Database, GetItemCommand, PutItemCommand, Record, TableDefinition};
 
 const DEFAULT_PORT: u16 = 3000;
 
@@ -51,7 +51,9 @@ async fn main() {
 
     // _populate_data(&mut db, 0, 10000, false).unwrap();
 
-    let shared_state = Arc::new(AppState { db: RwLock::new(db) });
+    let shared_state = Arc::new(AppState {
+        db: RwLock::new(db),
+    });
 
     // our router
     let app = Router::new()
@@ -88,7 +90,7 @@ async fn healthz() -> &'static str {
 
 async fn create_table_handler(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<CreateTableCommand>,
+    Json(payload): Json<TableDefinition>,
 ) -> Result<Json<SuccessMessage>, AppError> {
     let mut db = state.db.write().unwrap();
     db.create_table(payload)?;

@@ -1,14 +1,11 @@
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
 
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
+use crate::query::types::{ColumnDefinition, ColumnName, ColumnType, ColumnValue, TableName};
 use crate::storage::Tuple;
-use crate::{
-    catalog::{Catalog, TableName},
-    query::ddl::{ColumnDefinition, ColumnName, ColumnType},
-    GetItemCommand,
-};
+use crate::{catalog::Catalog, GetItemCommand};
 
 use super::get_item;
 
@@ -18,54 +15,7 @@ pub struct PutItemCommand {
     pub item: Item,
 }
 
-pub type Item = HashMap<ColumnName, PrimitiveValue>;
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
-#[serde(untagged)]
-pub enum PrimitiveValue {
-    Integer(u64),
-    Float(f64),
-    Boolean(bool),
-    Text(String),
-}
-
-impl Display for PrimitiveValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Integer(val) => write!(f, "Integer({})", val),
-            Self::Float(val) => write!(f, "Float({})", val),
-            Self::Boolean(val) => write!(f, "Boolean({})", val),
-            Self::Text(val) => write!(f, "Text({})", val),
-        }
-    }
-}
-
-impl PrimitiveValue {
-    pub fn to_storage_format(&self) -> String {
-        match self {
-            Self::Integer(val) => val.to_string(),
-            Self::Float(val) => val.to_string(),
-            Self::Boolean(val) => val.to_string(),
-            Self::Text(val) => val.to_string(),
-        }
-    }
-    pub fn from_string(value: String) -> Option<Self> {
-        if value == "NULL" || value.is_empty() {
-            None
-        } else {
-            Some(match value.parse::<u64>() {
-                Ok(int) => PrimitiveValue::Integer(int),
-                Err(_) => match value.parse::<f64>() {
-                    Ok(float) => PrimitiveValue::Float(float),
-                    Err(_) => match value.parse::<bool>() {
-                        Ok(boolean) => PrimitiveValue::Boolean(boolean),
-                        Err(_) => PrimitiveValue::Text(value),
-                    },
-                },
-            })
-        }
-    }
-}
+pub type Item = HashMap<ColumnName, ColumnValue>;
 
 pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Result<()> {
     // check if table name is valid
@@ -78,7 +28,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
                     "Item object must contain primary key: {}.",
                     table.primary_key
                 ),
-                Some(primary_key_value) => primary_key_value.to_storage_format(),
+                Some(primary_key_value) => primary_key_value.to_string(),
             };
             // check to see if this primary key already exists
             let cmd = GetItemCommand {
@@ -102,16 +52,16 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
     Ok(())
 }
 
-fn typecheck_column(column: &ColumnDefinition, value: &PrimitiveValue) -> anyhow::Result<()> {
+fn typecheck_column(column: &ColumnDefinition, value: &ColumnValue) -> anyhow::Result<()> {
     match (&column.r#type, value) {
-        (ColumnType::Boolean, PrimitiveValue::Boolean(_)) => (),
-        (ColumnType::Integer, PrimitiveValue::Integer(_)) => (),
-        (ColumnType::Float, PrimitiveValue::Float(_)) => (),
-        (ColumnType::Text, PrimitiveValue::Text(_)) => (),
+        (ColumnType::Boolean, ColumnValue::Boolean(_)) => (),
+        (ColumnType::Integer, ColumnValue::Integer(_)) => (),
+        (ColumnType::Float, ColumnValue::Float(_)) => (),
+        (ColumnType::Text, ColumnValue::Text(_)) => (),
         (col_type, val_type) => bail!(
             "Column type mismatch. Column defined as type: {}, but provided value has type: {}.",
             col_type,
-            val_type
+            val_type.to_string(),
         ),
     }
     Ok(())

@@ -9,12 +9,11 @@ use anyhow::Context;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::byte_lines::ByteLines;
-use crate::query::dml::put_item::PrimitiveValue;
+use crate::{byte_lines::ByteLines, query::types::ColumnValue};
 
 /// A tuple is a list of values (well, possible values, hence `Option<..>`). In
 /// other words, this is a row of data.
-pub type Tuple = Vec<Option<PrimitiveValue>>;
+pub type Tuple = Vec<Option<ColumnValue>>;
 
 /// A block is like a table (more like a slice of a table); its a list of
 /// tuples. This is atomic unit in our storage engine.

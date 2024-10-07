@@ -7,10 +7,9 @@ use std::{
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
 
 use crate::{
-    query::ddl::{ColumnDefinition, ColumnName, CreateTableCommand},
+    query::types::{ColumnDefinition, ColumnName, TableDefinition, TableName},
     storage::Block,
 };
 
@@ -18,7 +17,7 @@ use crate::{
 /// serialize to disk.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct SerializableCatalog {
-    tables: Vec<CreateTableCommand>,
+    tables: Vec<TableDefinition>,
 }
 
 /// Internal metadata of what tables are there, their schema etc., that we keep
@@ -65,7 +64,7 @@ impl Catalog {
         get_table_path_(&self.directory_path, table_name)
     }
 
-    pub(crate) fn add_table(&mut self, table_def: CreateTableCommand) -> anyhow::Result<()> {
+    pub(crate) fn add_table(&mut self, table_def: TableDefinition) -> anyhow::Result<()> {
         let table = Table::new(table_def, &self.directory_path)?;
         self.tables.push(table);
         self.flush()?;
@@ -91,40 +90,8 @@ pub(crate) struct Table {
     primary_key_position: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::Display)]
-#[serde(into = "String")]
-#[serde(from = "String")]
-pub struct TableName(pub SmolStr);
-
-impl From<&str> for TableName {
-    fn from(value: &str) -> Self {
-        TableName::new(value)
-    }
-}
-
-impl From<String> for TableName {
-    fn from(value: String) -> Self {
-        TableName::new(&value)
-    }
-}
-
-impl From<TableName> for String {
-    fn from(val: TableName) -> Self {
-        val.0.to_string()
-    }
-}
-
-impl TableName {
-    pub fn new(value: &str) -> Self {
-        Self(SmolStr::new(value))
-    }
-}
-
 impl Table {
-    pub fn new(
-        table_definition: CreateTableCommand,
-        directory_path: &Path,
-    ) -> anyhow::Result<Self> {
+    pub fn new(table_definition: TableDefinition, directory_path: &Path) -> anyhow::Result<Self> {
         let table_path = get_table_path_(directory_path, &table_definition.name);
 
         let key_position = table_definition
@@ -155,7 +122,7 @@ impl Table {
             let index_key = tuple[self.primary_key_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            index.insert(index_key.to_storage_format(), row_pos);
+            index.insert(index_key.to_string(), row_pos);
             self.cursor = row_pos;
         }
         self.index = index;
@@ -171,7 +138,7 @@ impl Table {
     }
 }
 
-impl<'a> From<&'a Table> for CreateTableCommand {
+impl<'a> From<&'a Table> for TableDefinition {
     fn from(table: &'a Table) -> Self {
         Self {
             name: table.name.clone(),

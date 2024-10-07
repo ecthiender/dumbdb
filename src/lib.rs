@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
 use catalog::Catalog;
+pub use dml::{GetItemCommand, PutItemCommand, Record};
 use query::ddl;
 use query::dml;
-
-pub use ddl::CreateTableCommand;
-pub use dml::{GetItemCommand, PutItemCommand, Record};
+pub use query::types::TableDefinition;
 
 pub mod byte_lines;
 mod catalog;
@@ -23,7 +22,7 @@ impl Database {
         Ok(Self { catalog })
     }
 
-    pub fn create_table(&mut self, table: ddl::CreateTableCommand) -> anyhow::Result<()> {
+    pub fn create_table(&mut self, table: TableDefinition) -> anyhow::Result<()> {
         ddl::create_table(table, &mut self.catalog)
     }
 
@@ -45,7 +44,7 @@ mod tests {
 
     use anyhow::Context;
     use byte_lines::ByteLines;
-    use dml::put_item::PrimitiveValue;
+    use query::types::ColumnValue;
     use rand::Rng;
     use serde_json::json;
     use storage::{deserialize_binary, Tuple};
@@ -79,7 +78,7 @@ mod tests {
         let last_line = last_line?;
         let tuple: Tuple = deserialize_binary(last_line)?;
         let values: Vec<_> = tuple.into_iter().flatten().collect();
-        assert_eq!(values[0], PrimitiveValue::Integer(9));
+        assert_eq!(values[0], ColumnValue::Integer(9));
         Ok(())
     }
 
@@ -95,7 +94,7 @@ mod tests {
             let record = db.get_item(cmd)?.unwrap();
             assert_eq!(
                 record.get(&"id".into()).unwrap(),
-                &Some(PrimitiveValue::Integer(i))
+                &Some(ColumnValue::Integer(i))
             );
         }
         Ok(())
@@ -114,7 +113,7 @@ mod tests {
         let record = db.get_item(get_item)?.unwrap();
         assert_eq!(
             record.get(&"id".into()).unwrap(),
-            &Some(PrimitiveValue::Integer(id))
+            &Some(ColumnValue::Integer(id))
         );
         assert_eq!(record.get(&"name".into()).unwrap(), &generated_name);
 
