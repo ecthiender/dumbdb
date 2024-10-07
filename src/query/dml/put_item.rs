@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{Block, Tuple};
+use crate::storage::Tuple;
 use crate::{
     catalog::{Catalog, TableName},
     query::ddl::{ColumnDefinition, ColumnName, ColumnType},
@@ -138,9 +138,7 @@ fn insert_into_table(
         ),
         Some(table) => {
             let tuple = item_to_tuple(item, &table.columns);
-            // TODO: initialize Block only once
-            let mut block = Block::new(&table_path)?;
-            block.write(tuple)?;
+            table.block.write(tuple)?;
             table.index.insert(key, table.cursor);
             table.cursor += 1;
         }

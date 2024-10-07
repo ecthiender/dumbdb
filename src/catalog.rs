@@ -85,6 +85,7 @@ pub(crate) struct Table {
     pub(crate) name: TableName,
     pub(crate) columns: Vec<ColumnDefinition>,
     pub(crate) primary_key: ColumnName,
+    pub(crate) block: Block,
     pub(crate) index: BTreeMap<String, usize>,
     pub(crate) cursor: usize,
     primary_key_position: usize,
@@ -132,26 +133,26 @@ impl Table {
             .position(|col_def| col_def.name == table_definition.primary_key)
             .with_context(|| "Internal Error: primary key must exist.")?;
 
+        let block = Block::new(&table_path)?;
+
         let mut table = Self {
             name: table_definition.name,
             columns: table_definition.columns,
             primary_key: table_definition.primary_key,
+            block,
             primary_key_position: key_position,
             index: BTreeMap::new(),
             cursor: 0,
         };
-
-        table.build_index(&table_path)?;
+        table.build_index()?;
         Ok(table)
     }
 
-    fn build_index(&mut self, table_path: &Path) -> anyhow::Result<()> {
-        let key_position = self.pk_position();
+    fn build_index(&mut self) -> anyhow::Result<()> {
         let mut index = BTreeMap::new();
-        let block = Block::new(&table_path.into())?;
-        for (row_pos, tuple) in block.get_reader()?.enumerate() {
+        for (row_pos, tuple) in self.block.get_reader()?.enumerate() {
             let tuple = tuple?;
-            let index_key = tuple[key_position]
+            let index_key = tuple[self.primary_key_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
             index.insert(index_key.to_storage_format(), row_pos);

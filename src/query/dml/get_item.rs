@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use super::put_item::PrimitiveValue;
 use crate::{
     catalog::{Catalog, Table, TableName},
     query::ddl::{ColumnDefinition, ColumnName},
-    storage::{Block, Tuple},
+    storage::Tuple,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,7 +26,6 @@ pub fn get_item(
     match catalog.get_table(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
         Some(table) => {
-            let key_position = table.pk_position();
             let table_path = catalog.get_table_path(&command.table_name);
             if !table_path.exists() {
                 bail!(
@@ -39,8 +38,7 @@ pub fn get_item(
             // read from the index; get the cursor
             dbg!(&command.key);
             if let Some(cursor) = table.index.get(&command.key) {
-                let block = Block::new(&table_path)?;
-                match block.seek_to(*cursor)? {
+                match table.block.seek_to(*cursor)? {
                     None => bail!("ERROR: Internal Error: Could not find item with primary key."),
                     Some(line) => {
                         let record = parse_record(&table.columns, line)?;
@@ -58,12 +56,7 @@ pub fn get_item(
                 // key, but the file has it. For those cases, if scan_file flag
                 // is passed then we rescan the entire file.
                 if scan_file {
-                    Ok(scan_entire_file_get_item(
-                        &table_path,
-                        command,
-                        key_position,
-                        table,
-                    )?)
+                    Ok(scan_entire_file_get_item(command, table)?)
                 } else {
                     Ok(None)
                 }
@@ -73,14 +66,11 @@ pub fn get_item(
 }
 
 fn scan_entire_file_get_item(
-    table_path: &Path,
     command: GetItemCommand,
-    key_position: usize,
     table: &Table,
 ) -> anyhow::Result<Option<Record>> {
-    // TODO: initialize Block only once
-    let block = Block::new(&table_path.into())?;
-    for tuple in block.get_reader()? {
+    let key_position = table.pk_position();
+    for tuple in table.block.get_reader()? {
         let tuple = tuple?;
         let key = tuple[key_position]
             .clone()

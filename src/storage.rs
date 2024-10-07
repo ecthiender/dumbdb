@@ -2,7 +2,7 @@
 use std::{
     fs::File,
     io::{BufReader, Cursor, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context;
@@ -26,23 +26,16 @@ pub type Tuple = Vec<Option<PrimitiveValue>>;
 /// new data, seek to a specific row offset, and read all of the contents of the
 /// block as an iterator fashion.
 /// Note: it does not provide any API to delete or update data.
+#[derive(Debug, Clone)]
 pub struct Block {
     // file path of the file on disk
     file_path: PathBuf,
-    // file handle
-    file: File,
 }
 
 impl Block {
-    pub fn new(table_path: &PathBuf) -> anyhow::Result<Self> {
-        let file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(table_path)
-            .with_context(|| "Could not open file for writing.")?;
-
+    pub fn new(table_path: &Path) -> anyhow::Result<Self> {
         Ok(Self {
-            file_path: table_path.clone(),
-            file,
+            file_path: table_path.to_path_buf(),
         })
     }
 
@@ -71,12 +64,16 @@ impl Block {
     }
 
     fn write_to_file(&mut self, mut data: Vec<u8>) -> anyhow::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&self.file_path)
+            .with_context(|| "Could not open file for writing.")?;
+
         data.push(b'\n');
-        self.file
-            .write_all(&data)
+        file.write_all(&data)
             .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
-        self.file.flush()?;
-        self.file.sync_all()?;
+        file.flush()?;
+        file.sync_all()?;
         Ok(())
     }
 }
