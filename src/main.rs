@@ -1,13 +1,14 @@
-use axum::routing::get;
-use axum::routing::post;
-use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::routing::get;
+use axum::routing::post;
 use axum::Json;
+use axum::Router;
+use clap::Parser;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,21 @@ use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
 
 use dumbdb::{CreateTableCommand, Database, GetItemCommand, PutItemCommand, Record};
+
+const DEFAULT_PORT: u16 = 3000;
+
+/// Our server's CLI
+#[derive(clap::Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct ServerOptions {
+    /// Path to a database directory. The directory can be empty but it should exist.
+    #[arg(short, long)]
+    database_path: String,
+
+    /// Port on which to run the server.
+    #[arg(short, long, default_value_t = DEFAULT_PORT)]
+    port: u16,
+}
 
 struct AppState {
     db: Database,
@@ -28,7 +44,9 @@ async fn main() {
         .compact()
         .init();
 
-    let db = Database::new("data/dumbdb").unwrap();
+    let server_options = ServerOptions::parse();
+
+    let db = Database::new(&server_options.database_path).unwrap();
 
     // _populate_data(&mut db, 0, 10000, false).unwrap();
 
@@ -48,7 +66,7 @@ async fn main() {
         )
         .with_state(shared_state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], server_options.port));
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     tracing::info!("dumbdb listening on {}", addr);
