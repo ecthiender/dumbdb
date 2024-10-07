@@ -159,7 +159,6 @@ impl Table {
             self.cursor = row_pos;
         }
         self.index = index;
-        dbg!(&self.index);
         Ok(())
     }
 

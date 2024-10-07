@@ -99,7 +99,6 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
             insert_into_table(key, command.item, &command.table_name, catalog)?;
         }
     }
-    dbg!(&catalog.get_table(&command.table_name).unwrap().index);
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -34,7 +35,7 @@ struct ServerOptions {
 }
 
 struct AppState {
-    db: Database,
+    db: RwLock<Database>,
 }
 
 #[tokio::main]
@@ -50,7 +51,7 @@ async fn main() {
 
     // _populate_data(&mut db, 0, 10000, false).unwrap();
 
-    let shared_state = Arc::new(AppState { db });
+    let shared_state = Arc::new(AppState { db: RwLock::new(db) });
 
     // our router
     let app = Router::new()
@@ -89,7 +90,7 @@ async fn create_table_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateTableCommand>,
 ) -> Result<Json<SuccessMessage>, AppError> {
-    let mut db = state.db.clone();
+    let mut db = state.db.write().unwrap();
     db.create_table(payload)?;
     Ok(axum::response::Json(SuccessMessage::new("table created")))
 }
@@ -98,7 +99,8 @@ async fn get_item_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<GetItemCommand>,
 ) -> Result<Json<Option<Record>>, AppError> {
-    let result = state.db.get_item(payload)?;
+    let db = state.db.read().unwrap();
+    let result = db.get_item(payload)?;
     Ok(axum::response::Json(result))
 }
 
@@ -106,7 +108,7 @@ async fn put_item_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<PutItemCommand>,
 ) -> Result<Json<SuccessMessage>, AppError> {
-    let mut db = state.db.clone();
+    let mut db = state.db.write().unwrap();
     db.put_item(payload)?;
     Ok(axum::response::Json(SuccessMessage::default()))
 }
