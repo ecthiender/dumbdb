@@ -157,6 +157,23 @@ mod tests {
         Ok(())
     }
 
+    // looks like even when writing 11(!) rows of data, there is some issue, that
+    // it can't read all of them back?!
+    #[test]
+    fn test_write_lots_of_data() -> anyhow::Result<()> {
+        let mut db = setup("write_data_lots")?;
+        for i in 0..11 {
+            let author_item = create_put_item(i)?;
+            db.put_item(author_item)?;
+        }
+        let table = db.catalog.get_table(&"authors".into()).unwrap();
+        for tuple in table.block.get_reader()? {
+            let tuple = tuple?;
+            assert_eq!(tuple.len(), 2);
+        }
+        Ok(())
+    }
+
     fn setup(test_name: &str) -> anyhow::Result<Database> {
         let authors_table = json!({
             "name": "authors",

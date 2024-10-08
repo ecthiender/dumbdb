@@ -52,8 +52,13 @@ impl Block {
 
         // we have a ByteLines iterator; we map it to a Tuple iterator
         Ok(bytelines.into_iter().map(|line| {
+            // println!("reading one line");
             let line = line?;
+            // println!("read line");
+            // dbg!(&line);
             let data: Tuple = deserialize_binary(line)?;
+            // println!("deserialized data....");
+            // dbg!(&data);
             Ok::<Tuple, anyhow::Error>(data)
         }))
     }

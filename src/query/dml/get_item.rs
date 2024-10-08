@@ -33,8 +33,6 @@ pub fn get_item(
                 );
             }
             // read from the index; get the cursor
-            dbg!(&table.index);
-            dbg!(&command.key);
             if let Some(cursor) = table.index.get(&command.key) {
                 match table.block.seek_to(*cursor)? {
                     None => bail!("ERROR: Internal Error: Could not find item with primary key."),

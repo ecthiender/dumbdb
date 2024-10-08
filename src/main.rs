@@ -47,9 +47,9 @@ async fn main() {
 
     let server_options = ServerOptions::parse();
 
-    let db = Database::new(&server_options.database_path).unwrap();
+    let mut db = Database::new(&server_options.database_path).unwrap();
 
-    // _populate_data(&mut db, 0, 10000, false).unwrap();
+    _populate_data(&mut db, 0, 10, true).unwrap();
 
     let shared_state = Arc::new(AppState {
         db: RwLock::new(db),
@@ -201,7 +201,7 @@ fn _create_get_item(id: u64) -> anyhow::Result<GetItemCommand> {
     }))?)
 }
 
-fn _create_put_item(_id: u64) -> anyhow::Result<PutItemCommand> {
+fn _create_put_item(id: u64) -> anyhow::Result<PutItemCommand> {
     let rand_string: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(6)
@@ -215,20 +215,20 @@ fn _create_put_item(_id: u64) -> anyhow::Result<PutItemCommand> {
         .collect();
     let rand_num = rand::thread_rng().gen_range(6..99);
 
-    Ok(serde_json::from_value(json!({
-        "table_name": "users",
-        "item": {
-            "email": format!("{}@example.com", rand_string),
-            "username": rand_string_2,
-            "age": rand_num,
-        }
-    }))?)
-
     //Ok(serde_json::from_value(json!({
-    //    "table_name": "authors",
+    //    "table_name": "users",
     //    "item": {
-    //        "id": id,
-    //        "name": rand_string,
+    //        "email": format!("{}@example.com", rand_string),
+    //        "username": rand_string_2,
+    //        "age": rand_num,
     //    }
     //}))?)
+
+    Ok(serde_json::from_value(json!({
+        "table_name": "authors",
+        "item": {
+            "id": id,
+            "name": rand_string,
+        }
+    }))?)
 }

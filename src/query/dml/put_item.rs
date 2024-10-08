@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::query::types::{ColumnDefinition, ColumnName, ColumnType, ColumnValue, TableName};
 use crate::storage::Tuple;
-use crate::{catalog::Catalog, GetItemCommand};
-
-use super::get_item;
+use crate::catalog::Catalog;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PutItemCommand {
@@ -31,11 +29,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
                 Some(primary_key_value) => primary_key_value.to_string(),
             };
             // check to see if this primary key already exists
-            let cmd = GetItemCommand {
-                table_name: command.table_name.clone(),
-                key: key.clone(),
-            };
-            if get_item(cmd, catalog, false)?.is_some() {
+           if table.index.contains_key(&key) {
                 bail!("ERROR: Item with primary key '{}' already exists.", key);
             }
 
