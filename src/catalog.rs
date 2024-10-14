@@ -85,8 +85,11 @@ pub(crate) struct Table {
     pub(crate) columns: Vec<ColumnDefinition>,
     pub(crate) primary_key: ColumnName,
     pub(crate) block: Block,
-    pub(crate) index: BTreeMap<String, usize>,
-    pub(crate) cursor: usize,
+    /// Byte-offset based index.
+    pub(crate) index: BTreeMap<String, u64>,
+    // The current byte offset we are pointing to. This is used for indexing. To
+    // know where in the file a particular tuple is located.
+    pub(crate) byte_offset: u64,
     primary_key_position: usize,
 }
 
@@ -109,23 +112,21 @@ impl Table {
             block,
             primary_key_position: key_position,
             index: BTreeMap::new(),
-            cursor: 0,
+            byte_offset: 0,
         };
         table.build_index()?;
         Ok(table)
     }
 
     fn build_index(&mut self) -> anyhow::Result<()> {
-        let mut index = BTreeMap::new();
-        for (row_pos, tuple) in self.block.get_reader()?.enumerate() {
-            let tuple = tuple?;
+        for item in self.block.get_reader_with_length_prefix()? {
+            let (tuple, length) = item?;
             let index_key = tuple[self.primary_key_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            index.insert(index_key.to_string(), row_pos);
-            self.cursor = row_pos;
+            self.index.insert(index_key.to_string(), self.byte_offset);
+            self.byte_offset = self.byte_offset + 8 + length; // 8 bytes for length prefix + length of the tuple
         }
-        self.index = index;
         Ok(())
     }
 

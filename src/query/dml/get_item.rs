@@ -33,14 +33,10 @@ pub fn get_item(
                 );
             }
             // read from the index; get the cursor
-            if let Some(cursor) = table.index.get(&command.key) {
-                match table.block.seek_to(*cursor)? {
-                    None => bail!("ERROR: Internal Error: Could not find item with primary key."),
-                    Some(line) => {
-                        let record = parse_record(&table.columns, line)?;
-                        Ok(Some(record))
-                    }
-                }
+            if let Some(offset) = table.index.get(&command.key) {
+                let tuple = table.block.seek_to_offset(*offset)?;
+                let record = parse_record(&table.columns, tuple)?;
+                Ok(Some(record))
             // if not found in the index
             } else {
                 // The index is our main lookup structure; one invariant is all

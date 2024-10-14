@@ -1,7 +1,8 @@
 /// A dumb, barebones storage engine for dumbdb
 use std::{
     fs::File,
-    io::{BufReader, Cursor, Write},
+    io::{BufReader, Cursor, Read, Seek, SeekFrom, Write},
+    iter,
     path::{Path, PathBuf},
 };
 
@@ -9,7 +10,7 @@ use anyhow::Context;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{byte_lines::ByteLines, query::types::ColumnValue};
+use crate::query::types::ColumnValue;
 
 /// A tuple is a list of values (well, possible values, hence `Option<..>`). In
 /// other words, this is a row of data.
@@ -38,44 +39,121 @@ impl Block {
         })
     }
 
-    pub fn seek_to(&self, cursor: usize) -> anyhow::Result<Option<Tuple>> {
+    pub fn seek_to_row(&self, cursor: usize) -> anyhow::Result<Option<Tuple>> {
         let mut reader = self.get_reader()?;
         let tuple = reader.nth(cursor).transpose()?;
         Ok(tuple)
     }
 
-    // get an iterator over the file to read line by line
+    pub fn seek_to_offset(&self, offset: u64) -> anyhow::Result<Tuple> {
+        // fn seek_to_tuple(file: &mut File, offset: u64) -> anyhow::Result<Vec<u8>> {
+        // Seek to the correct byte offset
+        let mut file = File::open(&self.file_path)?;
+        file.seek(SeekFrom::Start(offset))?;
+
+        // Read the length prefix (8 bytes)
+        let mut length_buf = [0u8; 8];
+        file.read_exact(&mut length_buf)?;
+        let tuple_length = u64::from_le_bytes(length_buf);
+
+        // Now read the tuple data based on its length
+        let mut data_buf = vec![0u8; tuple_length as usize];
+        file.read_exact(&mut data_buf)?;
+
+        deserialize_binary(&data_buf)
+    }
+
+    /// Get an iterator over the block to read tuples in an iterator pattern.
+    /// This uses Rust iterators, so it is memory efficient.
     pub fn get_reader(&self) -> anyhow::Result<impl Iterator<Item = Result<Tuple, anyhow::Error>>> {
         let file = File::open(&self.file_path)?;
-        let reader = BufReader::new(file);
-        let bytelines = ByteLines::new(reader);
+        let mut reader = BufReader::new(file);
 
-        // we have a ByteLines iterator; we map it to a Tuple iterator
-        Ok(bytelines.into_iter().map(|line| {
-            // println!("reading one line");
-            let line = line?;
-            // println!("read line");
-            // dbg!(&line);
-            let data: Tuple = deserialize_binary(line)?;
-            // println!("deserialized data....");
-            // dbg!(&data);
-            Ok::<Tuple, anyhow::Error>(data)
+        Ok(iter::from_fn(move || {
+            let mut length_buf = [0u8; 8]; // Buffer to store the length prefix (u64)
+            if reader.read_exact(&mut length_buf).is_err() {
+                return None; // EOF or error
+            }
+
+            let length = u64::from_le_bytes(length_buf);
+            let mut buffer = vec![0; length as usize];
+
+            if reader.read_exact(&mut buffer).is_err() {
+                return Some(Err(anyhow::anyhow!(
+                    "ERROR: Internal Error: Unable to read data from block file."
+                )));
+            }
+
+            let data: Tuple = match deserialize_binary(&buffer) {
+                Ok(data) => data,
+                Err(err) => return Some(Err(err)),
+            };
+
+            Some(Ok(data))
         }))
     }
 
-    pub fn write(&mut self, tuple: Tuple) -> anyhow::Result<()> {
-        self.write_to_file(serialize_binary(&tuple)?)
+    /// Get an iterator over the block to read tuples along with its byte
+    /// offset, in an iterator pattern. This uses Rust iterators, so it is
+    /// memory efficient.
+    pub fn get_reader_with_length_prefix(
+        &self,
+    ) -> anyhow::Result<impl Iterator<Item = Result<(Tuple, u64), anyhow::Error>>> {
+        let file = File::open(&self.file_path)?;
+        let mut reader = BufReader::new(file);
+        let mut offset: u64 = 0;
+
+        Ok(iter::from_fn(move || {
+            let mut length_bytes = [0u8; 8];
+            // Read the length prefix
+            if reader.read_exact(&mut length_bytes).is_err() {
+                return None; // EOF or read error
+            }
+
+            let length = u64::from_le_bytes(length_bytes);
+            let mut buffer = vec![0; length as usize];
+
+            // Read the tuple
+            if reader.read_exact(&mut buffer).is_err() {
+                return None; // Read error
+            }
+
+            // Deserialize the tuple
+            let tuple: Tuple = match deserialize_binary(&buffer) {
+                Ok(data) => data,
+                Err(err) => return Some(Err(err)),
+            };
+
+            // Create a tuple of (Tuple, u64) to return
+            let result = Some(Ok((tuple, offset)));
+
+            // Update the offset for the next read
+            offset += 8 + length; // 8 bytes for length prefix + length of the tuple
+
+            result
+        }))
     }
 
-    fn write_to_file(&mut self, mut data: Vec<u8>) -> anyhow::Result<()> {
+    /// Write and return the length to data written.
+    pub fn write(&mut self, tuple: Tuple) -> anyhow::Result<u64> {
+        let serialized = serialize_binary(&tuple)?;
+        let length = serialized.len() as u64;
+        self.write_to_file(length.to_le_bytes(), serialized)?;
+        Ok(length)
+    }
+
+    fn write_to_file(&mut self, length_bytes: [u8; 8], data: Vec<u8>) -> anyhow::Result<()> {
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .open(&self.file_path)
-            .with_context(|| "Could not open file for writing.")?;
+            .with_context(|| "ERROR: Internal Error: Could not open block file for writing.")?;
 
-        data.push(b'\n');
+        // Write the length prefix and then the actual data
+        file.write_all(&length_bytes).with_context(|| {
+            "ERROR: Internal Error: Failed to write length prefix to block file."
+        })?;
         file.write_all(&data)
-            .with_context(|| "FATAL: Internal Error: Failed writing data to file")?;
+            .with_context(|| "ERROR: Internal Error: Failed to write data to block file.")?;
         file.flush()?;
         file.sync_all()?;
         Ok(())
@@ -91,7 +169,7 @@ where
     Ok(data)
 }
 
-pub fn deserialize_binary<T>(value: Vec<u8>) -> anyhow::Result<T>
+pub fn deserialize_binary<T>(value: &[u8]) -> anyhow::Result<T>
 where
     T: DeserializeOwned,
 {

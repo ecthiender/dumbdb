@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
+use crate::catalog::Catalog;
 use crate::query::types::{ColumnDefinition, ColumnName, ColumnType, ColumnValue, TableName};
 use crate::storage::Tuple;
-use crate::catalog::Catalog;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PutItemCommand {
@@ -29,7 +29,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
                 Some(primary_key_value) => primary_key_value.to_string(),
             };
             // check to see if this primary key already exists
-           if table.index.contains_key(&key) {
+            if table.index.contains_key(&key) {
                 bail!("ERROR: Item with primary key '{}' already exists.", key);
             }
 
@@ -81,13 +81,36 @@ fn insert_into_table(
         ),
         Some(table) => {
             let tuple = item_to_tuple(item, &table.columns);
-            table.block.write(tuple)?;
-            table.index.insert(key, table.cursor);
-            table.cursor += 1;
+            let length_bytes = table.block.write(tuple)?;
+            // update byte offset index
+            table.index.insert(key, table.byte_offset);
+            table.byte_offset = table.byte_offset + 8 + length_bytes;
         }
     }
     Ok(())
 }
+
+//fn insert_tuple_with_index(
+//    file: &mut File,
+//    index: &mut BTreeMap<PrimaryKey, u64>, // primary key to byte offset index
+//    tuple: Tuple,
+//    current_offset: u64,
+//) -> anyhow::Result<u64> {
+//    // Serialize the tuple
+//    let serialized_tuple = serialize_binary(&tuple)?;
+//
+//    // Write the length prefix and the serialized data to the file
+//    let length = serialized_tuple.len() as u64;
+//    file.write_all(&length.to_le_bytes())?;
+//    file.write_all(&serialized_tuple)?;
+//
+//    // Update the index with the primary key and the current byte offset
+//    let primary_key = extract_primary_key(&tuple);
+//    index.insert(primary_key, current_offset);
+//
+//    // Return the new byte offset (current_offset + 8 for length + tuple length)
+//    Ok(current_offset + 8 + length)
+//}
 
 /// Convert the values given in an 'Item' to the storage format; consults the
 /// `ColumnDefinition`s to serialize appropriately.

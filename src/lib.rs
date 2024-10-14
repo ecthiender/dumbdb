@@ -37,17 +37,13 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs::{self, File},
-        io::BufReader,
-    };
+    use std::fs::{self};
 
     use anyhow::Context;
-    use byte_lines::ByteLines;
+
     use query::types::ColumnValue;
     use rand::Rng;
     use serde_json::json;
-    use storage::{deserialize_binary, Tuple};
 
     use super::*;
 
@@ -67,17 +63,15 @@ mod tests {
             let author_item = create_put_item(i)?;
             db.put_item(author_item)?;
         }
-        let table_path = db.catalog.get_table_path(&"authors".into());
-        let file_handle = File::open(table_path)?;
-        let reader = BufReader::new(file_handle);
-        let bytelines = ByteLines::new(reader);
+        let table = db.catalog.get_table(&"authors".into()).unwrap();
 
-        let last_line = bytelines
+        let last_line = table
+            .block
+            .get_reader()?
             .last()
             .with_context(|| "There should be 10 rows written")?;
         let last_line = last_line?;
-        let tuple: Tuple = deserialize_binary(last_line)?;
-        let values: Vec<_> = tuple.into_iter().flatten().collect();
+        let values: Vec<_> = last_line.into_iter().flatten().collect();
         assert_eq!(values[0], ColumnValue::Integer(9));
         Ok(())
     }
@@ -131,38 +125,38 @@ mod tests {
     #[test]
     fn test_writing_data_updates_index() -> anyhow::Result<()> {
         let mut db = setup("index_write")?;
-        for i in 0..10 {
+        for i in 0..20 {
             let author_item = create_put_item(i)?;
             db.put_item(author_item)?;
         }
 
         let table = db.catalog.get_table(&"authors".into()).unwrap();
 
-        let row_pos = table.index.get("1");
-        assert!(row_pos.is_some());
-        let row_pos = row_pos.unwrap();
-        assert_eq!(row_pos, &1);
+        let byte_offset = table.index.get("0");
+        assert!(byte_offset.is_some());
+        let byte_offset = byte_offset.unwrap();
+        assert_eq!(byte_offset, &0);
 
-        let row_pos = table.index.get("6");
-        assert!(row_pos.is_some());
-        let row_pos = row_pos.unwrap();
-        assert_eq!(row_pos, &6);
+        let byte_offset = table.index.get("6");
+        assert!(byte_offset.is_some());
+        let byte_offset = byte_offset.unwrap();
+        let tuple = table.block.seek_to_offset(*byte_offset)?;
+        let primary_key = tuple[table.pk_position()].clone().unwrap();
+        assert_eq!(primary_key, ColumnValue::Integer(6));
 
-        let row_pos = table.index.get("9");
-        assert!(row_pos.is_some());
-        let row_pos = row_pos.unwrap();
-        assert_eq!(row_pos, &9);
-
-        assert_eq!(table.cursor, 10);
+        let byte_offset = table.index.get("9");
+        assert!(byte_offset.is_some());
+        let byte_offset = byte_offset.unwrap();
+        let tuple = table.block.seek_to_offset(*byte_offset)?;
+        let primary_key = tuple[table.pk_position()].clone().unwrap();
+        assert_eq!(primary_key, ColumnValue::Integer(9));
         Ok(())
     }
 
-    // looks like even when writing 11(!) rows of data, there is some issue, that
-    // it can't read all of them back?!
     #[test]
     fn test_write_lots_of_data() -> anyhow::Result<()> {
         let mut db = setup("write_data_lots")?;
-        for i in 0..11 {
+        for i in 0..100 {
             let author_item = create_put_item(i)?;
             db.put_item(author_item)?;
         }

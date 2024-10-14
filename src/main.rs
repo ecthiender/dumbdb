@@ -47,9 +47,9 @@ async fn main() {
 
     let server_options = ServerOptions::parse();
 
-    let mut db = Database::new(&server_options.database_path).unwrap();
+    let db = Database::new(&server_options.database_path).unwrap();
 
-    _populate_data(&mut db, 0, 10, true).unwrap();
+    // _populate_data(&mut db, 0, 1000, true).unwrap();
 
     let shared_state = Arc::new(AppState {
         db: RwLock::new(db),
