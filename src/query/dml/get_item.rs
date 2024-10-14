@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    catalog::{Catalog, Table},
+    catalog::Catalog,
     query::types::{ColumnDefinition, ColumnName, ColumnValue, TableName},
     storage::Tuple,
 };
@@ -32,47 +32,15 @@ pub fn get_item(
                     table_path.display()
                 );
             }
-            // read from the index; get the cursor
-            if let Some(offset) = table.index.get(&command.key) {
-                let tuple = table.block.seek_to_offset(*offset)?;
-                let record = parse_record(&table.columns, tuple)?;
-                Ok(Some(record))
-            // if not found in the index
-            } else {
-                // The index is our main lookup structure; one invariant is all
-                // primary keys are available in the index. Hence if it's not
-                // found in the index; the key doesn't exist. return None
-                //
-                // But.. software bugs are pesky and sometimes hard to predict.
-                // Maybe there's an edge case where the index doesn't have the
-                // key, but the file has it. For those cases, if scan_file flag
-                // is passed then we rescan the entire file.
-                if scan_file {
-                    Ok(scan_entire_file_get_item(command, table)?)
-                } else {
-                    Ok(None)
-                }
-            }
-        }
-    }
-}
+            let record = table
+                .table_buffer
+                .get_item(command.key, scan_file)?
+                .map(|item| parse_record(&table.columns, item))
+                .transpose()?;
 
-fn scan_entire_file_get_item(
-    command: GetItemCommand,
-    table: &Table,
-) -> anyhow::Result<Option<Record>> {
-    let key_position = table.pk_position();
-    for tuple in table.block.get_reader()? {
-        let tuple = tuple?;
-        let key = tuple[key_position]
-            .clone()
-            .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-        if key.to_string() == command.key {
-            let record = parse_record(&table.columns, tuple)?;
-            return Ok(Some(record));
+            Ok(record)
         }
     }
-    Ok(None)
 }
 
 fn parse_record(columns: &[ColumnDefinition], item: Tuple) -> anyhow::Result<Record> {

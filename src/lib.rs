@@ -6,10 +6,10 @@ use query::ddl;
 use query::dml;
 pub use query::types::TableDefinition;
 
-pub mod byte_lines;
 mod catalog;
 mod query;
-pub mod storage;
+mod storage;
+mod table;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -40,7 +40,6 @@ mod tests {
     use std::fs::{self};
 
     use anyhow::Context;
-
     use query::types::ColumnValue;
     use rand::Rng;
     use serde_json::json;
@@ -66,6 +65,7 @@ mod tests {
         let table = db.catalog.get_table(&"authors".into()).unwrap();
 
         let last_line = table
+            .table_buffer
             .block
             .get_reader()?
             .last()
@@ -132,23 +132,23 @@ mod tests {
 
         let table = db.catalog.get_table(&"authors".into()).unwrap();
 
-        let byte_offset = table.index.get("0");
+        let byte_offset = table.table_buffer.index.get("0");
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
         assert_eq!(byte_offset, &0);
 
-        let byte_offset = table.index.get("6");
+        let byte_offset = table.table_buffer.index.get("6");
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
-        let tuple = table.block.seek_to_offset(*byte_offset)?;
-        let primary_key = tuple[table.pk_position()].clone().unwrap();
+        let tuple = table.table_buffer.block.seek_to_offset(*byte_offset)?;
+        let primary_key = tuple[table.table_buffer.pk_position].clone().unwrap();
         assert_eq!(primary_key, ColumnValue::Integer(6));
 
-        let byte_offset = table.index.get("9");
+        let byte_offset = table.table_buffer.index.get("9");
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
-        let tuple = table.block.seek_to_offset(*byte_offset)?;
-        let primary_key = tuple[table.pk_position()].clone().unwrap();
+        let tuple = table.table_buffer.block.seek_to_offset(*byte_offset)?;
+        let primary_key = tuple[table.table_buffer.pk_position].clone().unwrap();
         assert_eq!(primary_key, ColumnValue::Integer(9));
         Ok(())
     }
@@ -161,7 +161,7 @@ mod tests {
             db.put_item(author_item)?;
         }
         let table = db.catalog.get_table(&"authors".into()).unwrap();
-        for tuple in table.block.get_reader()? {
+        for tuple in table.table_buffer.block.get_reader()? {
             let tuple = tuple?;
             assert_eq!(tuple.len(), 2);
         }

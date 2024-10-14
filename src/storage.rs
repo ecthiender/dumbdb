@@ -1,4 +1,5 @@
-/// A dumb, barebones storage engine for dumbdb
+/// A dumb, barebones storage engine for dumbdb. This is the unit that only
+/// deals with storing and retrieving data from disk.
 use std::{
     fs::File,
     io::{BufReader, Cursor, Read, Seek, SeekFrom, Write},
@@ -16,16 +17,17 @@ use crate::query::types::ColumnValue;
 /// other words, this is a row of data.
 pub type Tuple = Vec<Option<ColumnValue>>;
 
-/// A block is like a table (more like a slice of a table); its a list of
-/// tuples. This is atomic unit in our storage engine.
+/// A block stores a table (i.e. a list of tuples) on disk, backed by a single
+/// file.
+//
+/// It provides APIs to write new data, seek to a specific byte-offset, and read
+/// all of the contents of the block as an iterator fashion.
 ///
-/// But in practice, it is used to represent an entire table. And is backed by
-/// one single file on disk.
-///
-/// This manages storage of the table data on disk. And exposes APIs to write
-/// new data, seek to a specific row offset, and read all of the contents of the
-/// block as an iterator fashion.
 /// Note: it does not provide any API to delete or update data.
+///
+/// Internally, this stores data in a length-prefixed binary format. So it can
+/// have a O(1) retrieval of a specific tuple. Otherwise, you can read all
+/// tuples in an iterator pattern.
 #[derive(Debug, Clone)]
 pub struct Block {
     // file path of the file on disk
@@ -33,20 +35,18 @@ pub struct Block {
 }
 
 impl Block {
+    /// Create a new block. Takes a file path, where the data of the block is
+    /// stored on disk.
     pub fn new(table_path: &Path) -> anyhow::Result<Self> {
         Ok(Self {
             file_path: table_path.to_path_buf(),
         })
     }
 
-    pub fn seek_to_row(&self, cursor: usize) -> anyhow::Result<Option<Tuple>> {
-        let mut reader = self.get_reader()?;
-        let tuple = reader.nth(cursor).transpose()?;
-        Ok(tuple)
-    }
-
+    /// Read a specific tuple. This offers a O(1) seek to the tuple on the disk.
+    /// Given a byte-offset, seek to that specific offset in the block, and
+    /// return a `Tuple`
     pub fn seek_to_offset(&self, offset: u64) -> anyhow::Result<Tuple> {
-        // fn seek_to_tuple(file: &mut File, offset: u64) -> anyhow::Result<Vec<u8>> {
         // Seek to the correct byte offset
         let mut file = File::open(&self.file_path)?;
         file.seek(SeekFrom::Start(offset))?;
@@ -65,40 +65,18 @@ impl Block {
 
     /// Get an iterator over the block to read tuples in an iterator pattern.
     /// This uses Rust iterators, so it is memory efficient.
-    pub fn get_reader(&self) -> anyhow::Result<impl Iterator<Item = Result<Tuple, anyhow::Error>>> {
-        let file = File::open(&self.file_path)?;
-        let mut reader = BufReader::new(file);
-
-        Ok(iter::from_fn(move || {
-            let mut length_buf = [0u8; 8]; // Buffer to store the length prefix (u64)
-            if reader.read_exact(&mut length_buf).is_err() {
-                return None; // EOF or error
-            }
-
-            let length = u64::from_le_bytes(length_buf);
-            let mut buffer = vec![0; length as usize];
-
-            if reader.read_exact(&mut buffer).is_err() {
-                return Some(Err(anyhow::anyhow!(
-                    "ERROR: Internal Error: Unable to read data from block file."
-                )));
-            }
-
-            let data: Tuple = match deserialize_binary(&buffer) {
-                Ok(data) => data,
-                Err(err) => return Some(Err(err)),
-            };
-
-            Some(Ok(data))
-        }))
+    pub fn get_reader(&self) -> anyhow::Result<impl Iterator<Item = anyhow::Result<Tuple>>> {
+        Ok(self
+            .get_reader_with_length_prefix()?
+            .map(|x| x.map(|(tuple, _length_prefix)| tuple)))
     }
 
-    /// Get an iterator over the block to read tuples along with its byte
-    /// offset, in an iterator pattern. This uses Rust iterators, so it is
+    /// Get an iterator over the block to read tuples along with its length
+    /// prefix, in an iterator pattern. This uses Rust iterators, so it is
     /// memory efficient.
     pub fn get_reader_with_length_prefix(
         &self,
-    ) -> anyhow::Result<impl Iterator<Item = Result<(Tuple, u64), anyhow::Error>>> {
+    ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<(Tuple, u64)>>> {
         let file = File::open(&self.file_path)?;
         let mut reader = BufReader::new(file);
         let mut offset: u64 = 0;
@@ -134,7 +112,7 @@ impl Block {
         }))
     }
 
-    /// Write and return the length to data written.
+    /// Write a `Tuple` and return the length of data written.
     pub fn write(&mut self, tuple: Tuple) -> anyhow::Result<u64> {
         let serialized = serialize_binary(&tuple)?;
         let length = serialized.len() as u64;
@@ -142,6 +120,7 @@ impl Block {
         Ok(length)
     }
 
+    // write binary data to file
     fn write_to_file(&mut self, length_bytes: [u8; 8], data: Vec<u8>) -> anyhow::Result<()> {
         let mut file = std::fs::OpenOptions::new()
             .append(true)
@@ -160,7 +139,7 @@ impl Block {
     }
 }
 
-pub fn serialize_binary<T>(value: &T) -> anyhow::Result<Vec<u8>>
+fn serialize_binary<T>(value: &T) -> anyhow::Result<Vec<u8>>
 where
     T: Serialize,
 {
@@ -169,7 +148,7 @@ where
     Ok(data)
 }
 
-pub fn deserialize_binary<T>(value: &[u8]) -> anyhow::Result<T>
+fn deserialize_binary<T>(value: &[u8]) -> anyhow::Result<T>
 where
     T: DeserializeOwned,
 {

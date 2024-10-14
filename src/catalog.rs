@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     fs::File,
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
@@ -10,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     query::types::{ColumnDefinition, ColumnName, TableDefinition, TableName},
-    storage::Block,
+    table::TableBuffer,
 };
 
 /// Internal metadata of what tables are there, their schema etc. that we can
@@ -84,58 +83,24 @@ pub(crate) struct Table {
     pub(crate) name: TableName,
     pub(crate) columns: Vec<ColumnDefinition>,
     pub(crate) primary_key: ColumnName,
-    pub(crate) block: Block,
-    /// Byte-offset based index.
-    pub(crate) index: BTreeMap<String, u64>,
-    // The current byte offset we are pointing to. This is used for indexing. To
-    // know where in the file a particular tuple is located.
-    pub(crate) byte_offset: u64,
-    primary_key_position: usize,
+    pub(crate) table_buffer: TableBuffer,
 }
 
 impl Table {
     pub fn new(table_definition: TableDefinition, directory_path: &Path) -> anyhow::Result<Self> {
-        let table_path = get_table_path_(directory_path, &table_definition.name);
+        let table_buffer = TableBuffer::new(&table_definition, directory_path)?;
 
-        let key_position = table_definition
-            .columns
-            .iter()
-            .position(|col_def| col_def.name == table_definition.primary_key)
-            .with_context(|| "Internal Error: primary key must exist.")?;
-
-        let block = Block::new(&table_path)?;
-
-        let mut table = Self {
+        let table = Self {
             name: table_definition.name,
             columns: table_definition.columns,
             primary_key: table_definition.primary_key,
-            block,
-            primary_key_position: key_position,
-            index: BTreeMap::new(),
-            byte_offset: 0,
+            table_buffer,
         };
-        table.build_index()?;
         Ok(table)
-    }
-
-    fn build_index(&mut self) -> anyhow::Result<()> {
-        for item in self.block.get_reader_with_length_prefix()? {
-            let (tuple, length) = item?;
-            let index_key = tuple[self.primary_key_position]
-                .clone()
-                .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            self.index.insert(index_key.to_string(), self.byte_offset);
-            self.byte_offset = self.byte_offset + 8 + length; // 8 bytes for length prefix + length of the tuple
-        }
-        Ok(())
     }
 
     pub fn get_column(&self, name: &ColumnName) -> Option<&ColumnDefinition> {
         self.columns.iter().find(|col| col.name == *name)
-    }
-
-    pub fn pk_position(&self) -> usize {
-        self.primary_key_position
     }
 }
 
