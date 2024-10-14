@@ -12,7 +12,7 @@ use crate::{
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetItemCommand {
     pub table_name: TableName,
-    pub key: String,
+    pub key: ColumnValue,
 }
 
 pub type Record = HashMap<ColumnName, Option<ColumnValue>>;
@@ -34,7 +34,7 @@ pub fn get_item(
             }
             let record = table
                 .table_buffer
-                .get_item(command.key, scan_file)?
+                .get(command.key, scan_file)?
                 .map(|item| parse_record(&table.columns, item))
                 .transpose()?;
 

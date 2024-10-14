@@ -132,19 +132,19 @@ mod tests {
 
         let table = db.catalog.get_table(&"authors".into()).unwrap();
 
-        let byte_offset = table.table_buffer.index.get("0");
+        let byte_offset = table.table_buffer.index.get(&ColumnValue::Integer(0));
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
         assert_eq!(byte_offset, &0);
 
-        let byte_offset = table.table_buffer.index.get("6");
+        let byte_offset = table.table_buffer.index.get(&ColumnValue::Integer(6));
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
         let tuple = table.table_buffer.block.seek_to_offset(*byte_offset)?;
         let primary_key = tuple[table.table_buffer.pk_position].clone().unwrap();
         assert_eq!(primary_key, ColumnValue::Integer(6));
 
-        let byte_offset = table.table_buffer.index.get("9");
+        let byte_offset = table.table_buffer.index.get(&ColumnValue::Integer(9));
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
         let tuple = table.table_buffer.block.seek_to_offset(*byte_offset)?;
@@ -199,7 +199,7 @@ mod tests {
     fn create_get_item(id: u64) -> anyhow::Result<dml::GetItemCommand> {
         Ok(serde_json::from_value(json!({
             "table_name": "authors",
-            "key": id.to_string(),
+            "key": ColumnValue::Integer(id),
         }))?)
     }
 

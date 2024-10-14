@@ -26,7 +26,9 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
                     "Item object must contain primary key: {}.",
                     table.primary_key
                 ),
-                Some(primary_key_value) => primary_key_value.to_string(),
+                // we need a copy of the key to store in the index, along with
+                // the tuple being stored on disk. hence, the clone.
+                Some(primary_key_value) => primary_key_value.clone(),
             };
             // check to see if this primary key already exists
             if table.table_buffer.contains_key(&key) {
@@ -41,7 +43,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
             }
             // finally write the data
             let tuple = item_to_tuple(command.item, &table.columns);
-            table.table_buffer.put_item(key, tuple)?;
+            table.table_buffer.write(key, tuple)?;
         }
     }
     Ok(())
@@ -51,7 +53,7 @@ fn typecheck_column(column: &ColumnDefinition, value: &ColumnValue) -> anyhow::R
     match (&column.r#type, value) {
         (ColumnType::Boolean, ColumnValue::Boolean(_)) => (),
         (ColumnType::Integer, ColumnValue::Integer(_)) => (),
-        (ColumnType::Float, ColumnValue::Float(_)) => (),
+        // (ColumnType::Float, ColumnValue::Float(_)) => (),
         (ColumnType::Text, ColumnValue::Text(_)) => (),
         (col_type, val_type) => bail!(
             "Column type mismatch. Column defined as type: {}, but provided value has type: {}.",

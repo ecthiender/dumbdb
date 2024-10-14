@@ -1,12 +1,12 @@
 use std::{
-    collections::BTreeMap,
+    collections::HashMap,
     path::{Path, PathBuf},
 };
 
 use anyhow::Context;
 
 use crate::{
-    query::types::TableName,
+    query::types::{ColumnValue, TableName},
     storage::{Block, Tuple},
     TableDefinition,
 };
@@ -18,7 +18,7 @@ use crate::{
 pub(crate) struct TableBuffer {
     pub(crate) block: Block,
     /// Byte-offset based index.
-    pub(crate) index: BTreeMap<String, u64>,
+    pub(crate) index: HashMap<ColumnValue, u64>,
     // The current byte offset we are pointing to. This is used for indexing. To
     // know where in the file a particular tuple is located.
     pub(crate) byte_offset: u64,
@@ -40,14 +40,14 @@ impl TableBuffer {
         let mut table = Self {
             block,
             pk_position: key_position,
-            index: BTreeMap::new(),
+            index: HashMap::new(),
             byte_offset: 0,
         };
         table.build_index()?;
         Ok(table)
     }
 
-    pub fn get_item(&self, key: String, scan_file: bool) -> anyhow::Result<Option<Tuple>> {
+    pub fn get(&self, key: ColumnValue, scan_file: bool) -> anyhow::Result<Option<Tuple>> {
         // read from the index; get the cursor
         if let Some(offset) = self.index.get(&key) {
             let tuple = self.block.seek_to_offset(*offset)?;
@@ -70,7 +70,7 @@ impl TableBuffer {
         }
     }
 
-    pub fn put_item(&mut self, key: String, tuple: Tuple) -> anyhow::Result<()> {
+    pub fn write(&mut self, key: ColumnValue, tuple: Tuple) -> anyhow::Result<()> {
         let length_bytes = self.block.write(tuple)?;
         // update byte offset index
         self.index.insert(key, self.byte_offset);
@@ -78,18 +78,18 @@ impl TableBuffer {
         Ok(())
     }
 
-    pub fn contains_key(&self, key: &String) -> bool {
+    pub fn contains_key(&self, key: &ColumnValue) -> bool {
         self.index.contains_key(key)
     }
 
     // scan the entire block to get an item
-    fn scan_block_get_item(&self, user_key: String) -> anyhow::Result<Option<Tuple>> {
+    fn scan_block_get_item(&self, user_key: ColumnValue) -> anyhow::Result<Option<Tuple>> {
         for tuple in self.block.get_reader()? {
             let tuple = tuple?;
             let key = tuple[self.pk_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            if key.to_string() == user_key {
+            if key == user_key {
                 return Ok(Some(tuple));
             }
         }
@@ -98,13 +98,16 @@ impl TableBuffer {
 
     // build the index during initialization by reading through the entire block
     fn build_index(&mut self) -> anyhow::Result<()> {
-        for item in self.block.get_reader_with_length_prefix()? {
-            let (tuple, length) = item?;
+        for item in self.block.get_reader_with_byte_offset()? {
+            let (tuple, byte_offset) = item?;
+            dbg!(&tuple);
+            dbg!(&byte_offset);
             let index_key = tuple[self.pk_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            self.index.insert(index_key.to_string(), self.byte_offset);
-            self.byte_offset = self.byte_offset + 8 + length; // 8 bytes for length prefix + length of the tuple
+            self.index.insert(index_key, byte_offset);
+            dbg!(&self.index);
+            self.byte_offset = byte_offset;
         }
         Ok(())
     }

@@ -10,10 +10,7 @@ use axum::routing::post;
 use axum::Json;
 use axum::Router;
 use clap::Parser;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
 
@@ -49,8 +46,6 @@ async fn main() {
 
     let db = Database::new(&server_options.database_path).unwrap();
 
-    // _populate_data(&mut db, 0, 1000, true).unwrap();
-
     let shared_state = Arc::new(AppState {
         db: RwLock::new(db),
     });
@@ -74,10 +69,6 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     tracing::info!("dumbdb listening on {}", addr);
     axum::serve(listener, app).await.unwrap();
-    //axum::Server::bind(&"127.0.0.1:8080".parse().unwrap())
-    //    .serve(app.into_make_service())
-    //    .await
-    //    .unwrap();
 }
 
 async fn root() -> &'static str {
@@ -159,76 +150,4 @@ impl IntoResponse for AppError {
         )
             .into_response()
     }
-}
-
-fn _populate_data(
-    db: &mut Database,
-    from: usize,
-    to: usize,
-    create_table: bool,
-) -> Result<(), AppError> {
-    if create_table {
-        let authors_table = json!({
-            "name": "authors",
-            "columns": [
-                {
-                    "name": "id",
-                    "type": "Integer",
-                },
-                {
-                    "name": "name",
-                    "type": "Text",
-                }
-            ],
-            "primary_key": "id"
-        });
-
-        db.create_table(serde_json::from_value(authors_table)?)?;
-    }
-
-    for i in from..to {
-        let author_item = _create_put_item(i as u64)?;
-        db.put_item(author_item)?;
-    }
-
-    Ok(())
-}
-
-fn _create_get_item(id: u64) -> anyhow::Result<GetItemCommand> {
-    Ok(serde_json::from_value(json!({
-        "table_name": "authors",
-        "key": id.to_string(),
-    }))?)
-}
-
-fn _create_put_item(id: u64) -> anyhow::Result<PutItemCommand> {
-    let rand_string: String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(6)
-        .map(char::from)
-        .collect();
-
-    let rand_string_2: String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(10)
-        .map(char::from)
-        .collect();
-    let rand_num = rand::thread_rng().gen_range(6..99);
-
-    //Ok(serde_json::from_value(json!({
-    //    "table_name": "users",
-    //    "item": {
-    //        "email": format!("{}@example.com", rand_string),
-    //        "username": rand_string_2,
-    //        "age": rand_num,
-    //    }
-    //}))?)
-
-    Ok(serde_json::from_value(json!({
-        "table_name": "authors",
-        "item": {
-            "id": id,
-            "name": rand_string,
-        }
-    }))?)
 }

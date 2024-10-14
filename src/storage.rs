@@ -67,14 +67,14 @@ impl Block {
     /// This uses Rust iterators, so it is memory efficient.
     pub fn get_reader(&self) -> anyhow::Result<impl Iterator<Item = anyhow::Result<Tuple>>> {
         Ok(self
-            .get_reader_with_length_prefix()?
+            .get_reader_with_byte_offset()?
             .map(|x| x.map(|(tuple, _length_prefix)| tuple)))
     }
 
-    /// Get an iterator over the block to read tuples along with its length
-    /// prefix, in an iterator pattern. This uses Rust iterators, so it is
+    /// Get an iterator over the block to read tuples along with its byte
+    /// offset, in an iterator pattern. This uses Rust iterators, so it is
     /// memory efficient.
-    pub fn get_reader_with_length_prefix(
+    pub fn get_reader_with_byte_offset(
         &self,
     ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<(Tuple, u64)>>> {
         let file = File::open(&self.file_path)?;
@@ -116,6 +116,7 @@ impl Block {
     pub fn write(&mut self, tuple: Tuple) -> anyhow::Result<u64> {
         let serialized = serialize_binary(&tuple)?;
         let length = serialized.len() as u64;
+        println!("[DEBUG] writing tuple of length {}: {:?}", length, tuple);
         self.write_to_file(length.to_le_bytes(), serialized)?;
         Ok(length)
     }

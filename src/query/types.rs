@@ -35,11 +35,11 @@ impl Display for ColumnType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 #[serde(untagged)]
 pub enum ColumnValue {
     Integer(u64),
-    Float(f64),
+    // Float(f64), // <-- f64 doesn't have PartialOrd, Ord, Eq or Hash. So we can't use it as a key in our index.
     Boolean(bool),
     Text(String),
 }
@@ -48,7 +48,7 @@ impl Display for ColumnValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Integer(val) => write!(f, "{}", val),
-            Self::Float(val) => write!(f, "{}", val),
+            // Self::Float(val) => write!(f, "{}", val),
             Self::Boolean(val) => write!(f, "{}", val),
             Self::Text(val) => write!(f, "{}", val),
         }
@@ -59,12 +59,9 @@ impl From<String> for ColumnValue {
     fn from(value: String) -> Self {
         match value.parse::<u64>() {
             Ok(int) => ColumnValue::Integer(int),
-            Err(_) => match value.parse::<f64>() {
-                Ok(float) => ColumnValue::Float(float),
-                Err(_) => match value.parse::<bool>() {
-                    Ok(boolean) => ColumnValue::Boolean(boolean),
-                    Err(_) => ColumnValue::Text(value),
-                },
+            Err(_) => match value.parse::<bool>() {
+                Ok(boolean) => ColumnValue::Boolean(boolean),
+                Err(_) => ColumnValue::Text(value),
             },
         }
     }
