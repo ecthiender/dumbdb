@@ -64,8 +64,17 @@ Read data via `get_item` API. Passing the primary key column is required.
 ``` sh
 curl localhost:3000/api/v1/dml/get_item \
     -XPOST \
-    -d '{"table_name": "authors", "key": "42"}' \
+    -d @get_item.json \
     -H 'content-type:application/json' -i
+```
+
+`get_item.json` -
+
+``` json
+{
+  "table_name": "authors",
+  "key": 42
+}
 ```
 
 ### Filter data
