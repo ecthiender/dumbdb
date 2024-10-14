@@ -11,7 +11,10 @@ is a separate group of APIs for each type of query.
 Create a table with the `create_table` API. Having a primary key column is required.
 
 ``` sh
-curl localhost:3000/api/v1/ddl/create_table -XPOST -d @create_table.json -H "content-type:application/json" -i
+curl localhost:3000/api/v1/ddl/create_table \
+    -XPOST \
+    -d @create_table.json \
+    -H "content-type:application/json" -i
 ```
 
 `create_table.json` -
@@ -37,7 +40,10 @@ curl localhost:3000/api/v1/ddl/create_table -XPOST -d @create_table.json -H "con
 Write data via `put_item` API.
 
 ``` sh
-curl localhost:3000/api/v1/dml/put_item -XPOST -d @put_item.json -H "content-type:application/json" -i
+curl localhost:3000/api/v1/dml/put_item \
+    -XPOST \
+    -d @put_item.json \
+    -H "content-type:application/json" -i
 ```
 
 `put_item.json` -
@@ -56,7 +62,10 @@ curl localhost:3000/api/v1/dml/put_item -XPOST -d @put_item.json -H "content-typ
 Read data via `get_item` API. Passing the primary key column is required.
 
 ``` sh
-curl localhost:3000/api/v1/dml/get_item -XPOST -d '{"table_name": "authors", "key": "42"}' -H 'content-type:application/json' -i
+curl localhost:3000/api/v1/dml/get_item \
+    -XPOST \
+    -d '{"table_name": "authors", "key": "42"}' \
+    -H 'content-type:application/json' -i
 ```
 
 ### Filter data
