@@ -35,7 +35,7 @@ impl Display for ColumnType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Hash, Clone)]
 #[serde(untagged)]
 pub enum ColumnValue {
     Integer(u64),
@@ -71,6 +71,47 @@ impl From<ColumnValue> for String {
     fn from(val: ColumnValue) -> String {
         format!("{}", val)
     }
+}
+
+// Expresion type
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Expression {
+    #[serde(rename = "$and")]
+    And(Vec<Expression>),
+    #[serde(rename = "$or")]
+    Or(Vec<Expression>),
+    #[serde(rename = "$not")]
+    Not(Box<Expression>),
+    #[serde(untagged)]
+    ColumnComparison(ColumnComparison),
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct ColumnComparison {
+    pub column: ColumnName,
+    #[serde(rename = "op")]
+    pub operator: Operator,
+    pub value: ColumnValue,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Operator {
+    #[serde(rename = "$eq")]
+    Eq,
+    #[serde(rename = "$neq")]
+    Neq,
+    #[serde(rename = "$gt")]
+    Gt,
+    #[serde(rename = "$lt")]
+    Lt,
+    #[serde(rename = "$gte")]
+    Gte,
+    #[serde(rename = "$lte")]
+    Lte,
 }
 
 // newtype structs..

@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
 
-use dumbdb::{Database, GetItemCommand, PutItemCommand, Record, TableDefinition};
+use dumbdb::{
+    Database, FilterItemCommand, GetItemCommand, PutItemCommand, Record, TableDefinition,
+};
 
 const DEFAULT_PORT: u16 = 3000;
 
@@ -57,6 +59,7 @@ async fn main() {
         .route("/api/v1/ddl/create_table", post(create_table_handler))
         .route("/api/v1/dml/get_item", post(get_item_handler))
         .route("/api/v1/dml/put_item", post(put_item_handler))
+        .route("/api/v1/dml/filter_item", post(filter_item_handler))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
@@ -104,6 +107,15 @@ async fn put_item_handler(
     let mut db = state.db.write().unwrap();
     db.put_item(payload)?;
     Ok(axum::response::Json(SuccessMessage::default()))
+}
+
+async fn filter_item_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<FilterItemCommand>,
+) -> Result<Json<Vec<Record>>, AppError> {
+    let db = state.db.read().unwrap();
+    let result = db.filter_item(payload)?;
+    Ok(axum::response::Json(result))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

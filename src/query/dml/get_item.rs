@@ -1,21 +1,18 @@
-use std::collections::HashMap;
-
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     catalog::Catalog,
-    query::types::{ColumnDefinition, ColumnName, ColumnValue, TableName},
-    storage::Tuple,
+    query::types::{ColumnValue, TableName},
 };
+
+use super::common::{parse_record, Record};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetItemCommand {
     pub table_name: TableName,
     pub key: ColumnValue,
 }
-
-pub type Record = HashMap<ColumnName, Option<ColumnValue>>;
 
 pub fn get_item(
     command: GetItemCommand,
@@ -41,13 +38,4 @@ pub fn get_item(
             Ok(record)
         }
     }
-}
-
-fn parse_record(columns: &[ColumnDefinition], item: Tuple) -> anyhow::Result<Record> {
-    let mut record = HashMap::new();
-    for (idx, value) in item.into_iter().enumerate() {
-        let col_name = columns[idx].name.clone();
-        record.insert(col_name, value);
-    }
-    Ok(record)
 }

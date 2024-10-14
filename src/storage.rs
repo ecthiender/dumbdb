@@ -116,7 +116,6 @@ impl Block {
     pub fn write(&mut self, tuple: Tuple) -> anyhow::Result<u64> {
         let serialized = serialize_binary(&tuple)?;
         let length = serialized.len() as u64;
-        println!("[DEBUG] writing tuple of length {}: {:?}", length, tuple);
         self.write_to_file(length.to_le_bytes(), serialized)?;
         Ok(length)
     }

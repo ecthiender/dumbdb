@@ -70,7 +70,45 @@ curl localhost:3000/api/v1/dml/get_item \
 
 ### Filter data
 
-[Future] Filter data via `filter_item` API, using a filter expression. Passing primary key column is not required.
+Filter data via `filter_item` API, using a filter expression. Passing primary key column is not required.
+
+``` sh
+curl localhost:3000/api/v1/dml/filter_item \
+  -XPOST \
+  -d @filter_item.json \
+  -H 'content-type:application/json'
+```
+
+`filter_item.json` -
+
+``` json
+{
+  "table_name": "authors",
+  "filter": {
+    "$or": [
+      {
+        "column": "id",
+        "op": "$eq",
+        "value": 42
+      },
+      {
+        "$and": [
+          {
+            "column": "id",
+            "op": "$gt",
+            "value": 100
+          },
+          {
+            "column": "id",
+            "op": "$lte",
+            "value": 1000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ### Update data
 [Future] Update data via `update_item` API.

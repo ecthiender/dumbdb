@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use catalog::Catalog;
-pub use dml::{GetItemCommand, PutItemCommand, Record};
+pub use dml::{FilterItemCommand, GetItemCommand, PutItemCommand, Record};
 use query::ddl;
 use query::dml;
 pub use query::types::TableDefinition;
@@ -32,6 +32,10 @@ impl Database {
 
     pub fn get_item(&self, command: dml::GetItemCommand) -> anyhow::Result<Option<dml::Record>> {
         dml::get_item(command, &self.catalog, false)
+    }
+
+    pub fn filter_item(&self, command: dml::FilterItemCommand) -> anyhow::Result<Vec<dml::Record>> {
+        dml::filter_item(command, &self.catalog)
     }
 }
 
@@ -168,6 +172,27 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_filtering() -> anyhow::Result<()> {
+        let mut db = setup("filtering")?;
+        for i in 0..100 {
+            let author_item = create_put_item(i)?;
+            db.put_item(author_item)?;
+        }
+
+        // test expression 1
+        let cmd = create_filter_item_1()?;
+        let res = db.filter_item(cmd)?;
+        assert_eq!(res.len(), 80);
+
+        // test expression 2
+        let cmd = create_filter_item_2()?;
+        let res = db.filter_item(cmd)?;
+        assert_eq!(res.len(), 10);
+
+        Ok(())
+    }
+
     fn setup(test_name: &str) -> anyhow::Result<Database> {
         let authors_table = json!({
             "name": "authors",
@@ -221,6 +246,55 @@ mod tests {
                 "id": id,
                 "name": rand_string,
             }
+        }))?)
+    }
+
+    fn create_filter_item_1() -> anyhow::Result<dml::FilterItemCommand> {
+        Ok(serde_json::from_value(json!({
+              "table_name": "authors",
+              "filter": {
+                "$and": [
+                  {
+                    "column": "id",
+                    "op": "$gt",
+                    "value": 9
+                  },
+                  {
+                    "column": "id",
+                    "op": "$lt",
+                    "value": 90
+                  },
+                ]
+              }
+        }))?)
+    }
+
+    fn create_filter_item_2() -> anyhow::Result<dml::FilterItemCommand> {
+        Ok(serde_json::from_value(json!({
+              "table_name": "authors",
+              "filter": {
+                "$or": [
+                  {
+                    "column": "id",
+                    "op": "$eq",
+                    "value": 42
+                  },
+                  {
+                    "$and": [
+                      {
+                        "column": "id",
+                        "op": "$gt",
+                        "value": 1
+                      },
+                      {
+                        "column": "id",
+                        "op": "$lte",
+                        "value": 10
+                      }
+                    ]
+                  }
+                ]
+              }
         }))?)
     }
 }

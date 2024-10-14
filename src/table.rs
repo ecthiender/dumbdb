@@ -100,13 +100,10 @@ impl TableBuffer {
     fn build_index(&mut self) -> anyhow::Result<()> {
         for item in self.block.get_reader_with_byte_offset()? {
             let (tuple, byte_offset) = item?;
-            dbg!(&tuple);
-            dbg!(&byte_offset);
             let index_key = tuple[self.pk_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
             self.index.insert(index_key, byte_offset);
-            dbg!(&self.index);
             self.byte_offset = byte_offset;
         }
         Ok(())
