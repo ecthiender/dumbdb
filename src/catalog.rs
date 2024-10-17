@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     query::types::{ColumnDefinition, ColumnName, TableDefinition, TableName},
-    table::TableBuffer,
+    table::{self, TableBuffer},
 };
+
+const CATALOG_FILE_NAME: &str = "catalog.json";
 
 /// Internal metadata of what tables are there, their schema etc. that we can
 /// serialize to disk.
@@ -29,12 +31,11 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    pub(crate) fn new(dir_path: PathBuf) -> anyhow::Result<Self> {
+    pub(crate) async fn new(dir_path: PathBuf) -> anyhow::Result<Self> {
         if !dir_path.exists() {
             bail!("Database directory '{}' doesn't exist.", dir_path.display())
         }
-
-        let catalog_path = dir_path.join("catalog");
+        let catalog_path = dir_path.join(CATALOG_FILE_NAME);
         let stored_catalog: SerializableCatalog = if catalog_path.exists() {
             read_json_file(&catalog_path)?
         } else {
@@ -42,7 +43,7 @@ impl Catalog {
         };
         let mut tables = vec![];
         for table in stored_catalog.tables {
-            tables.push(Table::new(table, &dir_path)?);
+            tables.push(Table::new(table, &dir_path).await?);
         }
         Ok(Self {
             catalog_path,
@@ -60,14 +61,18 @@ impl Catalog {
     }
 
     pub(crate) fn get_table_path(&self, table_name: &TableName) -> PathBuf {
-        get_table_path_(&self.directory_path, table_name)
+        table::get_table_path_(&self.directory_path, table_name)
     }
 
-    pub(crate) fn add_table(&mut self, table_def: TableDefinition) -> anyhow::Result<()> {
-        let table = Table::new(table_def, &self.directory_path)?;
+    pub(crate) async fn add_table(&mut self, table_def: TableDefinition) -> anyhow::Result<()> {
+        let table = Table::new(table_def, &self.directory_path).await?;
         self.tables.push(table);
         self.flush()?;
         Ok(())
+    }
+
+    pub(crate) fn get_table_size(&self, name: &TableName) -> Option<usize> {
+        self.get_table(name).map(|table| table.table_buffer.size())
     }
 
     fn flush(&self) -> anyhow::Result<()> {
@@ -87,8 +92,11 @@ pub(crate) struct Table {
 }
 
 impl Table {
-    pub fn new(table_definition: TableDefinition, directory_path: &Path) -> anyhow::Result<Self> {
-        let table_buffer = TableBuffer::new(&table_definition, directory_path)?;
+    pub async fn new(
+        table_definition: TableDefinition,
+        directory_path: &Path,
+    ) -> anyhow::Result<Self> {
+        let table_buffer = TableBuffer::new(&table_definition, directory_path).await?;
 
         let table = Self {
             name: table_definition.name,
@@ -115,11 +123,6 @@ impl<'a> From<&'a Table> for TableDefinition {
 }
 
 // helpers
-fn get_table_path_(directory_path: &Path, table_name: &TableName) -> PathBuf {
-    let table_rel_path = PathBuf::from(format!("{}.tbl", table_name.0.as_str()));
-    directory_path.join(table_rel_path)
-}
-
 fn read_json_file<T: for<'a> Deserialize<'a>>(file_path: &PathBuf) -> anyhow::Result<T> {
     // Open the file in read-only mode.
     let file = File::open(file_path).with_context(|| {

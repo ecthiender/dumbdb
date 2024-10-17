@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Context;
+use futures::StreamExt;
 
 use crate::{
     query::types::{ColumnValue, TableName},
@@ -26,7 +27,10 @@ pub(crate) struct TableBuffer {
 }
 
 impl TableBuffer {
-    pub fn new(table_definition: &TableDefinition, directory_path: &Path) -> anyhow::Result<Self> {
+    pub async fn new(
+        table_definition: &TableDefinition,
+        directory_path: &Path,
+    ) -> anyhow::Result<Self> {
         let table_path = get_table_path_(directory_path, &table_definition.name);
 
         let key_position = table_definition
@@ -43,14 +47,14 @@ impl TableBuffer {
             index: HashMap::new(),
             byte_offset: 0,
         };
-        table.build_index()?;
+        table.build_index().await?;
         Ok(table)
     }
 
-    pub fn get(&self, key: ColumnValue, scan_file: bool) -> anyhow::Result<Option<Tuple>> {
+    pub async fn get(&self, key: ColumnValue, scan_file: bool) -> anyhow::Result<Option<Tuple>> {
         // read from the index; get the cursor
         if let Some(offset) = self.index.get(&key) {
-            let tuple = self.block.seek_to_offset(*offset)?;
+            let tuple = self.block.seek_to_offset(*offset).await?;
             Ok(Some(tuple))
         // if not found in the index
         } else {
@@ -63,28 +67,34 @@ impl TableBuffer {
             // key, but the file has it. For those cases, if scan_file flag
             // is passed then we rescan the entire file.
             if scan_file {
-                Ok(self.scan_block_get_item(key)?)
+                Ok(self.scan_block_get_item(key).await?)
             } else {
                 Ok(None)
             }
         }
     }
 
-    pub fn write(&mut self, key: ColumnValue, tuple: Tuple) -> anyhow::Result<()> {
-        let length_bytes = self.block.write(tuple)?;
+    pub async fn write(&mut self, key: ColumnValue, tuple: Tuple) -> anyhow::Result<()> {
+        let length_bytes = self.block.write(tuple).await?;
         // update byte offset index
         self.index.insert(key, self.byte_offset);
         self.byte_offset = self.byte_offset + 8 + length_bytes;
         Ok(())
     }
 
+    /// Does this table's index contains the given key
     pub fn contains_key(&self, key: &ColumnValue) -> bool {
         self.index.contains_key(key)
     }
 
+    pub fn size(&self) -> usize {
+        self.index.len()
+    }
+
     // scan the entire block to get an item
-    fn scan_block_get_item(&self, user_key: ColumnValue) -> anyhow::Result<Option<Tuple>> {
-        for tuple in self.block.get_reader()? {
+    async fn scan_block_get_item(&self, user_key: ColumnValue) -> anyhow::Result<Option<Tuple>> {
+        let mut stream = self.block.get_reader().await?;
+        while let Some(tuple) = stream.next().await {
             let tuple = tuple?;
             let key = tuple[self.pk_position]
                 .clone()
@@ -97,21 +107,22 @@ impl TableBuffer {
     }
 
     // build the index during initialization by reading through the entire block
-    fn build_index(&mut self) -> anyhow::Result<()> {
-        for item in self.block.get_reader_with_byte_offset()? {
-            let (tuple, byte_offset) = item?;
+    async fn build_index(&mut self) -> anyhow::Result<()> {
+        let mut stream = self.block.get_reader_with_byte_offset().await?;
+        while let Some(result) = stream.next().await {
+            let (tuple, offset) = result?;
             let index_key = tuple[self.pk_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            self.index.insert(index_key, byte_offset);
-            self.byte_offset = byte_offset;
+            self.index.insert(index_key, offset);
+            self.byte_offset = offset;
         }
         Ok(())
     }
 }
 
 // helpers
-fn get_table_path_(directory_path: &Path, table_name: &TableName) -> PathBuf {
-    let table_rel_path = PathBuf::from(format!("{}.tbl", table_name.0.as_str()));
+pub fn get_table_path_(directory_path: &Path, table_name: &TableName) -> PathBuf {
+    let table_rel_path = PathBuf::from(format!("{}.dat", table_name.0.as_str()));
     directory_path.join(table_rel_path)
 }

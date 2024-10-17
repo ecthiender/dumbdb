@@ -5,6 +5,7 @@ pub use dml::{FilterItemCommand, GetItemCommand, PutItemCommand, Record};
 use query::ddl;
 use query::dml;
 pub use query::types::TableDefinition;
+pub use query::types::TableName;
 
 mod catalog;
 mod query;
@@ -17,25 +18,35 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn new(path: &str) -> anyhow::Result<Self> {
-        let catalog = Catalog::new(PathBuf::from(path))?;
+    pub async fn new(path: &str) -> anyhow::Result<Self> {
+        let catalog = Catalog::new(PathBuf::from(path)).await?;
         Ok(Self { catalog })
     }
 
-    pub fn create_table(&mut self, table: TableDefinition) -> anyhow::Result<()> {
-        ddl::create_table(table, &mut self.catalog)
+    pub async fn create_table(&mut self, table: TableDefinition) -> anyhow::Result<()> {
+        ddl::create_table(table, &mut self.catalog).await
     }
 
-    pub fn put_item(&mut self, command: dml::PutItemCommand) -> anyhow::Result<()> {
-        dml::put_item(command, &mut self.catalog)
+    pub async fn put_item(&mut self, command: dml::PutItemCommand) -> anyhow::Result<()> {
+        dml::put_item(command, &mut self.catalog).await
     }
 
-    pub fn get_item(&self, command: dml::GetItemCommand) -> anyhow::Result<Option<dml::Record>> {
-        dml::get_item(command, &self.catalog, false)
+    pub async fn get_item(
+        &self,
+        command: dml::GetItemCommand,
+    ) -> anyhow::Result<Option<dml::Record>> {
+        dml::get_item(command, &self.catalog, false).await
     }
 
-    pub fn filter_item(&self, command: dml::FilterItemCommand) -> anyhow::Result<Vec<dml::Record>> {
-        dml::filter_item(command, &self.catalog)
+    pub async fn filter_item(
+        &self,
+        command: dml::FilterItemCommand,
+    ) -> anyhow::Result<Vec<dml::Record>> {
+        dml::filter_item(command, &self.catalog).await
+    }
+
+    pub fn get_size(&self, table: &TableName) -> Option<usize> {
+        self.catalog.get_table_size(table)
     }
 }
 
@@ -43,7 +54,7 @@ impl Database {
 mod tests {
     use std::fs::{self};
 
-    use anyhow::Context;
+    use futures::StreamExt;
     use query::types::ColumnValue;
     use rand::Rng;
     use serde_json::json;
@@ -52,44 +63,49 @@ mod tests {
 
     const DB_PATH: &str = "data/test/dumbdb";
 
-    #[test]
-    fn test_create_table() -> anyhow::Result<()> {
-        let db = setup("create_table")?;
+    #[tokio::test]
+    async fn test_create_table() -> anyhow::Result<()> {
+        let db = setup("create_table").await?;
         assert!(db.catalog.get_table(&"authors".into()).is_some());
         Ok(())
     }
 
-    #[test]
-    fn test_write_data() -> anyhow::Result<()> {
-        let mut db = setup("write_data")?;
+    #[tokio::test]
+    async fn test_write_data() -> anyhow::Result<()> {
+        let mut db = setup("write_data").await?;
         for i in 0..10 {
             let author_item = create_put_item(i)?;
-            db.put_item(author_item)?;
+            db.put_item(author_item).await?;
         }
         let table = db.catalog.get_table(&"authors".into()).unwrap();
 
-        let last_line = table
+        let lines = table
             .table_buffer
             .block
-            .get_reader()?
-            .last()
-            .with_context(|| "There should be 10 rows written")?;
+            .get_reader()
+            .await?
+            .collect::<Vec<_>>()
+            .await;
+        dbg!(&lines);
+
+        let last_line = lines.into_iter().last().unwrap();
+        // .with_context(|| "There should be 10 rows written")?;
         let last_line = last_line?;
         let values: Vec<_> = last_line.into_iter().flatten().collect();
         assert_eq!(values[0], ColumnValue::Integer(9));
         Ok(())
     }
 
-    #[test]
-    fn test_read_data() -> anyhow::Result<()> {
-        let mut db = setup("read_data")?;
+    #[tokio::test]
+    async fn test_read_data() -> anyhow::Result<()> {
+        let mut db = setup("read_data").await?;
         for i in 0..10 {
             let author_item = create_put_item(i)?;
-            db.put_item(author_item)?;
+            db.put_item(author_item).await?;
         }
         for i in 5..8 {
             let cmd = create_get_item(i)?;
-            let record = db.get_item(cmd)?.unwrap();
+            let record = db.get_item(cmd).await?.unwrap();
             assert_eq!(
                 record.get(&"id".into()).unwrap(),
                 &Some(ColumnValue::Integer(i))
@@ -98,17 +114,17 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_writes_with_same_id() -> anyhow::Result<()> {
-        let mut db = setup("write_data_same_id")?;
+    #[tokio::test]
+    async fn test_writes_with_same_id() -> anyhow::Result<()> {
+        let mut db = setup("write_data_same_id").await?;
 
         // insert one record; and read it
         let id = 42;
         let put_item_1 = create_put_item(id)?;
         let generated_name = put_item_1.item.get(&"name".into()).cloned();
-        db.put_item(put_item_1)?;
+        db.put_item(put_item_1).await?;
         let get_item = create_get_item(id)?;
-        let record = db.get_item(get_item)?.unwrap();
+        let record = db.get_item(get_item).await?.unwrap();
         assert_eq!(
             record.get(&"id".into()).unwrap(),
             &Some(ColumnValue::Integer(id))
@@ -117,7 +133,7 @@ mod tests {
 
         // insert another record with same id; it should overwrite the old data
         let put_item_2 = create_put_item(id)?;
-        let res = db.put_item(put_item_2).map_err(|e| e.to_string());
+        let res = db.put_item(put_item_2).await.map_err(|e| e.to_string());
         assert_eq!(
             res,
             Err("ERROR: Item with primary key '42' already exists.".to_string())
@@ -126,12 +142,12 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_writing_data_updates_index() -> anyhow::Result<()> {
-        let mut db = setup("index_write")?;
+    #[tokio::test]
+    async fn test_writing_data_updates_index() -> anyhow::Result<()> {
+        let mut db = setup("index_write").await?;
         for i in 0..20 {
             let author_item = create_put_item(i)?;
-            db.put_item(author_item)?;
+            db.put_item(author_item).await?;
         }
 
         let table = db.catalog.get_table(&"authors".into()).unwrap();
@@ -144,56 +160,65 @@ mod tests {
         let byte_offset = table.table_buffer.index.get(&ColumnValue::Integer(6));
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
-        let tuple = table.table_buffer.block.seek_to_offset(*byte_offset)?;
+        let tuple = table
+            .table_buffer
+            .block
+            .seek_to_offset(*byte_offset)
+            .await?;
         let primary_key = tuple[table.table_buffer.pk_position].clone().unwrap();
         assert_eq!(primary_key, ColumnValue::Integer(6));
 
         let byte_offset = table.table_buffer.index.get(&ColumnValue::Integer(9));
         assert!(byte_offset.is_some());
         let byte_offset = byte_offset.unwrap();
-        let tuple = table.table_buffer.block.seek_to_offset(*byte_offset)?;
+        let tuple = table
+            .table_buffer
+            .block
+            .seek_to_offset(*byte_offset)
+            .await?;
         let primary_key = tuple[table.table_buffer.pk_position].clone().unwrap();
         assert_eq!(primary_key, ColumnValue::Integer(9));
         Ok(())
     }
 
-    #[test]
-    fn test_write_lots_of_data() -> anyhow::Result<()> {
-        let mut db = setup("write_data_lots")?;
-        for i in 0..100 {
+    #[tokio::test]
+    async fn test_write_lots_of_data() -> anyhow::Result<()> {
+        let mut db = setup("write_data_lots").await?;
+        for i in 0..111 {
             let author_item = create_put_item(i)?;
-            db.put_item(author_item)?;
+            db.put_item(author_item).await?;
         }
         let table = db.catalog.get_table(&"authors".into()).unwrap();
-        for tuple in table.table_buffer.block.get_reader()? {
+        let mut stream = table.table_buffer.block.get_reader().await?;
+        while let Some(tuple) = stream.next().await {
             let tuple = tuple?;
             assert_eq!(tuple.len(), 2);
         }
         Ok(())
     }
 
-    #[test]
-    fn test_filtering() -> anyhow::Result<()> {
-        let mut db = setup("filtering")?;
+    #[tokio::test]
+    async fn test_filtering() -> anyhow::Result<()> {
+        let mut db = setup("filtering").await?;
         for i in 0..100 {
             let author_item = create_put_item(i)?;
-            db.put_item(author_item)?;
+            db.put_item(author_item).await?;
         }
 
         // test expression 1
         let cmd = create_filter_item_1()?;
-        let res = db.filter_item(cmd)?;
+        let res = db.filter_item(cmd).await?;
         assert_eq!(res.len(), 80);
 
         // test expression 2
         let cmd = create_filter_item_2()?;
-        let res = db.filter_item(cmd)?;
+        let res = db.filter_item(cmd).await?;
         assert_eq!(res.len(), 10);
 
         Ok(())
     }
 
-    fn setup(test_name: &str) -> anyhow::Result<Database> {
+    async fn setup(test_name: &str) -> anyhow::Result<Database> {
         let authors_table = json!({
             "name": "authors",
             "columns": [
@@ -216,8 +241,9 @@ mod tests {
             let _ = fs::remove_dir_all(&dir_path);
         }
         fs::create_dir_all(&dir_path)?;
-        let mut db = Database::new(dir_path.to_str().unwrap())?;
-        db.create_table(serde_json::from_value(authors_table)?)?;
+        let mut db = Database::new(dir_path.to_str().unwrap()).await?;
+        db.create_table(serde_json::from_value(authors_table)?)
+            .await?;
         Ok(db)
     }
 

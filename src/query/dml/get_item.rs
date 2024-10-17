@@ -14,7 +14,7 @@ pub struct GetItemCommand {
     pub key: ColumnValue,
 }
 
-pub fn get_item(
+pub async fn get_item(
     command: GetItemCommand,
     catalog: &Catalog,
     scan_file: bool,
@@ -31,7 +31,8 @@ pub fn get_item(
             }
             let record = table
                 .table_buffer
-                .get(command.key, scan_file)?
+                .get(command.key, scan_file)
+                .await?
                 .map(|item| parse_record(&table.columns, item))
                 .transpose()?;
 

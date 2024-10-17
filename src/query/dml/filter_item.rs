@@ -1,4 +1,5 @@
 use anyhow::bail;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -15,12 +16,16 @@ pub struct FilterItemCommand {
     pub filter: Expression,
 }
 
-pub fn filter_item(command: FilterItemCommand, catalog: &Catalog) -> anyhow::Result<Vec<Record>> {
+pub async fn filter_item(
+    command: FilterItemCommand,
+    catalog: &Catalog,
+) -> anyhow::Result<Vec<Record>> {
     match catalog.get_table(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
         Some(table) => {
             let mut res = vec![];
-            for tuple in table.table_buffer.block.get_reader()? {
+            let mut stream = table.table_buffer.block.get_reader().await?;
+            while let Some(tuple) = stream.next().await {
                 let tuple = tuple?;
                 if evaluate_expression(&table.columns, &command.filter, &tuple) {
                     res.push(parse_record(&table.columns, tuple)?);
@@ -31,6 +36,7 @@ pub fn filter_item(command: FilterItemCommand, catalog: &Catalog) -> anyhow::Res
     }
 }
 
+/// Evaluate an `Expression` to be true or false, given a `Tuple`.
 fn evaluate_expression(
     columns: &[ColumnDefinition],
     expression: &Expression,

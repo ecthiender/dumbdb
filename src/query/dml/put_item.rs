@@ -15,7 +15,7 @@ pub struct PutItemCommand {
 
 pub type Item = HashMap<ColumnName, ColumnValue>;
 
-pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Result<()> {
+pub async fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Result<()> {
     // check if table name is valid
     match catalog.get_table_mut(&command.table_name) {
         None => bail!("Table name '{}' doesn't exist.", command.table_name),
@@ -43,7 +43,7 @@ pub fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Resul
             }
             // finally write the data
             let tuple = item_to_tuple(command.item, &table.columns);
-            table.table_buffer.write(key, tuple)?;
+            table.table_buffer.write(key, tuple).await?;
         }
     }
     Ok(())
