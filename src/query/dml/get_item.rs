@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     catalog::Catalog,
     query::{
-        error::{InternalError, QueryError},
+        error::QueryError,
         types::{ColumnValue, TableName},
     },
 };
@@ -24,12 +24,6 @@ pub async fn get_item(
     match catalog.get_table(&command.table_name) {
         None => Err(QueryError::TableNotFound(command.table_name)),
         Some(table) => {
-            let table_path = catalog.get_table_path(&command.table_name);
-            if !table_path.exists() {
-                return Err(QueryError::InternalError(InternalError::FilepathNotFound(
-                    table_path,
-                )));
-            }
             let record = table
                 .table_buffer
                 .get(command.key, scan_file)
