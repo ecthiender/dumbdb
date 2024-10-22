@@ -19,13 +19,40 @@ use crate::{
 /// abstraction over the storage layer. This is where we implement indexing.
 #[derive(Debug, Clone)]
 pub(crate) struct TableBuffer {
+    /// The block backing this table
     pub(crate) block: Block,
+    /// The table index for O(1) lookups
+    pub(crate) index: Index,
+    /// Column index of the primary key
+    pub(crate) pk_position: usize,
+}
+
+/// The index structure. It is a map of primary key to byte-offset in the block.
+#[derive(Debug, Clone)]
+pub struct Index {
     /// Byte-offset based index.
     pub(crate) index: HashMap<ColumnValue, u64>,
-    // The current byte offset we are pointing to. This is used for indexing. To
-    // know where in the file a particular tuple is located.
+    /// The next byte offset we are pointing to. When a write comes, this value
+    /// will be used for that tuple. The byte offset is kept behind a lock, so
+    /// as to perform thread-safe updates.
     pub(crate) byte_offset: Arc<Mutex<u64>>,
-    pub(crate) pk_position: usize,
+}
+
+impl Index {
+    fn new() -> Self {
+        Self {
+            index: HashMap::new(),
+            byte_offset: Arc::new(Mutex::new(0)),
+        }
+    }
+    pub(crate) fn get(&self, key: &ColumnValue) -> Option<&u64> {
+        self.index.get(key)
+    }
+    async fn update(&mut self, key: ColumnValue, tuple_length: u64) {
+        let mut curr_offset = self.byte_offset.lock().await;
+        self.index.insert(key, *curr_offset);
+        *curr_offset = calculate_new_offset(tuple_length, *curr_offset);
+    }
 }
 
 impl TableBuffer {
@@ -46,8 +73,7 @@ impl TableBuffer {
         let mut table = Self {
             block,
             pk_position: key_position,
-            index: HashMap::new(),
-            byte_offset: Arc::new(Mutex::new(0)),
+            index: Index::new(),
         };
         table.build_index().await?;
         Ok(table)
@@ -80,19 +106,17 @@ impl TableBuffer {
         // write the tuple
         let length_bytes = self.block.write(tuple).await?;
         // update the index
-        let mut curr_offset = self.byte_offset.lock().await;
-        self.index.insert(key, *curr_offset);
-        *curr_offset = calculate_new_offset(length_bytes, *curr_offset);
+        self.index.update(key, length_bytes).await;
         Ok(())
     }
 
     /// Does this table's index contains the given key
     pub fn contains_key(&self, key: &ColumnValue) -> bool {
-        self.index.contains_key(key)
+        self.index.index.contains_key(key)
     }
 
     pub fn size(&self) -> usize {
-        self.index.len()
+        self.index.index.len()
     }
 
     // scan the entire block to get an item
@@ -113,14 +137,16 @@ impl TableBuffer {
     // build the index during initialization by reading through the entire block
     async fn build_index(&mut self) -> anyhow::Result<()> {
         let mut stream = self.block.get_reader_with_length().await?;
-        let mut curr_offset = self.byte_offset.lock().await;
         while let Some(result) = stream.next().await {
             let (tuple, length) = result?;
             let index_key = tuple[self.pk_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            self.index.insert(index_key, *curr_offset);
-            *curr_offset = calculate_new_offset(length, *curr_offset);
+            // Calling the index.update function in this tight loop might be
+            // slow; as we obtain the lock, update the data and release the lock
+            // inside this tight loop. But it's fine until this practically
+            // becomes a problem. Then we can optimize it.
+            self.index.update(index_key, length).await;
         }
         Ok(())
     }
