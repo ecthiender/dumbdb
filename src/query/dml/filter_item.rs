@@ -1,11 +1,14 @@
-use anyhow::bail;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     catalog::Catalog,
-    query::types::{ColumnDefinition, ColumnValue, Expression, Operator, TableName},
+    query::{
+        error::QueryError,
+        types::{ColumnDefinition, ColumnValue, Expression, Operator, TableName},
+    },
     storage::Tuple,
+    table::TableBufferError,
 };
 
 use super::{common::parse_record, Record};
@@ -19,16 +22,21 @@ pub struct FilterItemCommand {
 pub async fn filter_item(
     command: FilterItemCommand,
     catalog: &Catalog,
-) -> anyhow::Result<Vec<Record>> {
+) -> Result<Vec<Record>, QueryError> {
     match catalog.get_table(&command.table_name) {
-        None => bail!("Table name '{}' doesn't exist.", command.table_name),
+        None => Err(QueryError::TableNotFound(command.table_name)),
         Some(table) => {
             let mut res = vec![];
-            let mut stream = table.table_buffer.block.get_reader().await?;
+            let mut stream = table
+                .table_buffer
+                .block
+                .get_reader()
+                .await
+                .map_err(TableBufferError::StorageError)?;
             while let Some(tuple) = stream.next().await {
-                let tuple = tuple?;
+                let tuple = tuple.map_err(TableBufferError::StorageError)?;
                 if evaluate_expression(&table.columns, &command.filter, &tuple) {
-                    res.push(parse_record(&table.columns, tuple)?);
+                    res.push(parse_record(&table.columns, tuple));
                 }
             }
             Ok(res)

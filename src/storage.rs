@@ -7,7 +7,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context;
 use futures::{Stream, StreamExt};
 use rmp_serde::{Deserializer, Serializer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -45,14 +44,26 @@ pub struct Block {
 // tuple.
 const LENGTH_PREFIX_SIZE: usize = 8;
 
+#[derive(thiserror::Error, Debug)]
+pub enum StorageError {
+    #[error("Could not open block file. {0}")]
+    FileOpen(std::io::Error),
+    #[error("A block file operation failed. Error: {0}")]
+    FileOperation(#[from] std::io::Error),
+    #[error("Failed to serialize data to binary. {0}")]
+    SerializeBinary(#[from] rmp_serde::encode::Error),
+    #[error("Failed to deserialize binary to data. {0}")]
+    DeserializeBinary(#[from] rmp_serde::decode::Error),
+}
+
 impl Block {
     /// Create a new block. Takes a file path, where the data of the block is
     /// stored on disk.
-    pub fn new(table_path: &Path) -> anyhow::Result<Self> {
+    pub fn new(table_path: &Path) -> Result<Self, StorageError> {
         let file = std::fs::OpenOptions::new()
             .append(true)
             .open(table_path)
-            .with_context(|| "Internal Error: Could not open block file for writing.")?;
+            .map_err(StorageError::FileOpen)?;
 
         Ok(Self {
             file_path: table_path.to_path_buf(),
@@ -63,14 +74,12 @@ impl Block {
     /// Read a specific tuple. This offers a O(1) seek to the tuple on the disk.
     /// Given a byte-offset, seek to that specific offset in the block, and
     /// return a `Tuple`
-    pub async fn seek_to_offset(&self, offset: u64) -> anyhow::Result<Tuple> {
+    pub async fn seek_to_offset(&self, offset: u64) -> Result<Tuple, StorageError> {
         // Seek to the correct byte offset
         let mut file = File::open(&self.file_path)
             .await
-            .with_context(|| "Internal Error: Could not open block file for seeking.")?;
-        file.seek(SeekFrom::Start(offset))
-            .await
-            .with_context(|| "Internal Error: Could not seek in file.")?;
+            .map_err(StorageError::FileOpen)?;
+        file.seek(SeekFrom::Start(offset)).await?;
 
         // Read the length prefix (8 bytes)
         let mut length_buf = [0u8; LENGTH_PREFIX_SIZE];
@@ -80,16 +89,16 @@ impl Block {
 
         // Now read the tuple data based on its length
         let mut data_buf = vec![0u8; tuple_length as usize];
-        file.read_exact(&mut data_buf)
-            .await
-            .with_context(|| "Internal Error: Could not read data frame from file.")?;
+        file.read_exact(&mut data_buf).await?;
 
         deserialize_binary(&data_buf)
     }
 
     /// Get an iterator over the block to read tuples in an iterator pattern.
     /// This uses Rust iterators, so it is memory efficient.
-    pub async fn get_reader(&self) -> anyhow::Result<impl Stream<Item = anyhow::Result<Tuple>>> {
+    pub async fn get_reader(
+        &self,
+    ) -> Result<impl Stream<Item = Result<Tuple, StorageError>>, StorageError> {
         // this is basically: getStream >>= traverse fst
         let stream = self.get_reader_with_length().await?;
         Ok(stream.map(|x| x.map(|(tuple, _length_prefix)| tuple)))
@@ -100,7 +109,7 @@ impl Block {
     /// memory efficient.
     pub async fn get_reader_with_length(
         &self,
-    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<(Tuple, u64)>>> {
+    ) -> Result<impl Stream<Item = Result<(Tuple, u64), StorageError>>, StorageError> {
         // this is basically: getStream >>= traverse deserialize_binary
         let stream = self.get_stream_with_length().await?;
         Ok(stream
@@ -109,7 +118,7 @@ impl Block {
 
     async fn get_stream_with_length(
         &self,
-    ) -> anyhow::Result<Pin<Box<impl Stream<Item = (Vec<u8>, u64)>>>> {
+    ) -> Result<Pin<Box<impl Stream<Item = (Vec<u8>, u64)>>>, StorageError> {
         let file = File::open(&self.file_path).await?;
         let reader = BufReader::new(file);
         // let offset: u64 = 0;
@@ -136,7 +145,7 @@ impl Block {
     }
 
     /// Write a `Tuple` and return the length of data written.
-    pub async fn write(&mut self, tuple: Tuple) -> anyhow::Result<u64> {
+    pub async fn write(&mut self, tuple: Tuple) -> Result<u64, StorageError> {
         let serialized = serialize_binary(&tuple)?;
         let length = serialized.len() as u64;
         self.write_to_file(length.to_le_bytes(), serialized).await?;
@@ -144,15 +153,15 @@ impl Block {
     }
 
     // write binary data to file
-    async fn write_to_file(&mut self, length_bytes: [u8; 8], data: Vec<u8>) -> anyhow::Result<()> {
+    async fn write_to_file(
+        &mut self,
+        length_bytes: [u8; 8],
+        data: Vec<u8>,
+    ) -> Result<(), StorageError> {
         let mut file = self.write_handle.write().await;
         // Write the length prefix and then the actual data
-        file.write_all(&length_bytes).await.with_context(|| {
-            "ERROR: Internal Error: Failed to write length prefix to block file."
-        })?;
-        file.write_all(&data)
-            .await
-            .with_context(|| "ERROR: Internal Error: Failed to write data to block file.")?;
+        file.write_all(&length_bytes).await?;
+        file.write_all(&data).await?;
         file.flush().await?;
         file.sync_all().await?;
         Ok(())
@@ -164,7 +173,7 @@ pub fn calculate_new_offset(tuple_length: u64, current_offset: u64) -> u64 {
     current_offset + LENGTH_PREFIX_SIZE as u64 + tuple_length
 }
 
-fn serialize_binary<T>(value: &T) -> anyhow::Result<Vec<u8>>
+fn serialize_binary<T>(value: &T) -> Result<Vec<u8>, StorageError>
 where
     T: Serialize,
 {
@@ -173,7 +182,7 @@ where
     Ok(data)
 }
 
-fn deserialize_binary<T>(value: &[u8]) -> anyhow::Result<T>
+fn deserialize_binary<T>(value: &[u8]) -> Result<T, StorageError>
 where
     T: DeserializeOwned,
 {

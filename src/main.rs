@@ -11,6 +11,7 @@ use axum::Json;
 use axum::Router;
 use axum_macros::debug_handler;
 use clap::Parser;
+use dumbdb::error::QueryError;
 use dumbdb::DropTableCommand;
 use dumbdb::TableName;
 use rand::distributions::Alphanumeric;
@@ -177,27 +178,44 @@ impl Default for SuccessMessage {
 }
 
 #[derive(Debug)]
-struct AppError(anyhow::Error);
+struct AppError {
+    error: QueryError,
+}
+
+fn json_response(e: AppError) -> Json<serde_json::Value> {
+    let body = json!({"error": format!("{}", e.error)});
+    Json(body)
+}
 
 // This enables using `?` on functions that return `Result<_, anyhow::Error>` to
 // turn them into `Result<_, AppError>`. That way you don't need to do that
 // manually.
 impl<E> From<E> for AppError
 where
-    E: Into<anyhow::Error>,
+    E: Into<QueryError>,
 {
     fn from(err: E) -> Self {
-        Self(err.into())
+        Self { error: err.into() }
     }
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Something went wrong: {}", self.0),
-        )
-            .into_response()
+        match self.error {
+            QueryError::InternalError(_)
+            | QueryError::CatalogError(_)
+            | QueryError::TableStorageError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, json_response(self)).into_response()
+            }
+            QueryError::TableNotFound(_)
+            | QueryError::TableAlreadyExists(_)
+            | QueryError::ColumnTypeMismatch { .. }
+            | QueryError::ItemMustContainPrimaryKey(_)
+            | QueryError::PrimaryKeyAlreadyExists(_)
+            | QueryError::UnknownColumnInItem(_) => {
+                (StatusCode::BAD_REQUEST, json_response(self)).into_response()
+            }
+        }
     }
 }
 
@@ -206,7 +224,7 @@ async fn _populate_data(
     from: usize,
     to: usize,
     create_table: bool,
-) -> Result<(), AppError> {
+) -> anyhow::Result<()> {
     if create_table {
         let authors_table = json!({
             "name": "authors",

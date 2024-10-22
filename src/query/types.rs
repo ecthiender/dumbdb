@@ -44,6 +44,16 @@ pub enum ColumnValue {
     Text(String),
 }
 
+impl ColumnValue {
+    pub fn to_type(&self) -> ColumnType {
+        match self {
+            ColumnValue::Boolean(_) => ColumnType::Boolean,
+            ColumnValue::Integer(_) => ColumnType::Integer,
+            ColumnValue::Text(_) => ColumnType::Text,
+        }
+    }
+}
+
 impl Display for ColumnValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

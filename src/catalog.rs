@@ -4,12 +4,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     query::types::{ColumnDefinition, ColumnName, TableDefinition, TableName},
-    table::{self, TableBuffer},
+    table::{self, TableBuffer, TableBufferError},
 };
 
 const CATALOG_FILE_NAME: &str = "catalog.json";
@@ -30,10 +29,22 @@ pub(crate) struct Catalog {
     tables: Vec<Table>,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum CatalogError {
+    #[error("Database directory '{0}' does not exist.")]
+    DbDirNotExist(PathBuf),
+    #[error("Internal Error: {0}")]
+    TableStorageError(#[from] TableBufferError),
+    #[error("Internal Error: {0}")]
+    FileOperationError(#[from] std::io::Error),
+    #[error("Internal Error: {0}")]
+    DeserError(#[from] serde_json::Error),
+}
+
 impl Catalog {
-    pub(crate) async fn new(dir_path: PathBuf) -> anyhow::Result<Self> {
+    pub(crate) async fn new(dir_path: PathBuf) -> Result<Self, CatalogError> {
         if !dir_path.exists() {
-            bail!("Database directory '{}' doesn't exist.", dir_path.display())
+            return Err(CatalogError::DbDirNotExist(dir_path));
         }
         let catalog_path = dir_path.join(CATALOG_FILE_NAME);
         let stored_catalog: SerializableCatalog = if catalog_path.exists() {
@@ -64,14 +75,17 @@ impl Catalog {
         table::get_table_path_(&self.directory_path, table_name)
     }
 
-    pub(crate) async fn add_table(&mut self, table_def: TableDefinition) -> anyhow::Result<()> {
+    pub(crate) async fn add_table(
+        &mut self,
+        table_def: TableDefinition,
+    ) -> Result<(), CatalogError> {
         let table = Table::new(table_def, &self.directory_path).await?;
         self.tables.push(table);
         self.flush()?;
         Ok(())
     }
 
-    pub(crate) async fn drop_table(&mut self, table_name: TableName) -> anyhow::Result<()> {
+    pub(crate) async fn drop_table(&mut self, table_name: TableName) -> Result<(), CatalogError> {
         self.tables.retain(|t| t.name != table_name);
         self.flush()?;
         Ok(())
@@ -81,7 +95,7 @@ impl Catalog {
         self.get_table(name).map(|table| table.table_buffer.size())
     }
 
-    fn flush(&self) -> anyhow::Result<()> {
+    fn flush(&self) -> Result<(), CatalogError> {
         let stored_catalog = SerializableCatalog {
             tables: self.tables.iter().map(Into::into).collect(),
         };
@@ -101,7 +115,7 @@ impl Table {
     pub async fn new(
         table_definition: TableDefinition,
         directory_path: &Path,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, CatalogError> {
         let table_buffer = TableBuffer::new(&table_definition, directory_path).await?;
 
         let table = Self {
@@ -129,27 +143,17 @@ impl<'a> From<&'a Table> for TableDefinition {
 }
 
 // helpers
-fn read_json_file<T: for<'a> Deserialize<'a>>(file_path: &PathBuf) -> anyhow::Result<T> {
+fn read_json_file<T: for<'a> Deserialize<'a>>(file_path: &PathBuf) -> Result<T, CatalogError> {
     // Open the file in read-only mode.
-    let file = File::open(file_path).with_context(|| {
-        format!(
-            "read_json_file: Unable to open file: {}",
-            file_path.display()
-        )
-    })?;
+    let file = File::open(file_path)?;
     // Create a buffered reader for more efficient file reading.
     let reader = BufReader::new(file);
-    serde_json::from_reader(reader).with_context(|| "Unable to parse JSON")
+    Ok(serde_json::from_reader(reader)?)
 }
 
-fn write_json_file<T: Serialize>(file_path: &PathBuf, item: &T) -> anyhow::Result<()> {
+fn write_json_file<T: Serialize>(file_path: &PathBuf, item: &T) -> Result<(), CatalogError> {
     // Open the file in write-only mode, create it if it doesn't exist.
-    let file = File::create(file_path).with_context(|| {
-        format!(
-            "write_json_file: Unable to create file: {}",
-            file_path.display()
-        )
-    })?;
+    let file = File::create(file_path)?;
     // Create a buffered writer for efficient file writing.
     let writer = BufWriter::new(file);
     // Serialize the item struct to JSON and write it to the file.

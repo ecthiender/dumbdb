@@ -4,13 +4,12 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
 use crate::{
     query::types::{ColumnValue, TableName},
-    storage::{calculate_new_offset, Block, Tuple},
+    storage::{calculate_new_offset, Block, StorageError, Tuple},
     TableDefinition,
 };
 
@@ -38,6 +37,16 @@ pub struct Index {
     pub(crate) byte_offset: Arc<Mutex<u64>>,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum TableBufferError {
+    #[error("Unexpected invariant violation: primary key not found in column definitions.")]
+    PrimaryKeyNotInDefn,
+    #[error("Unexpected invariant violation: primary key not found in data tuple.")]
+    PrimaryKeyNotInTuple,
+    #[error("Internal Storage Engine Error: {0}")]
+    StorageError(#[from] StorageError),
+}
+
 impl Index {
     fn new() -> Self {
         Self {
@@ -59,14 +68,14 @@ impl TableBuffer {
     pub async fn new(
         table_definition: &TableDefinition,
         directory_path: &Path,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, TableBufferError> {
         let table_path = get_table_path_(directory_path, &table_definition.name);
 
         let key_position = table_definition
             .columns
             .iter()
             .position(|col_def| col_def.name == table_definition.primary_key)
-            .with_context(|| "Internal Error: primary key must exist.")?;
+            .ok_or(TableBufferError::PrimaryKeyNotInDefn)?;
 
         let block = Block::new(&table_path)?;
 
@@ -79,7 +88,11 @@ impl TableBuffer {
         Ok(table)
     }
 
-    pub async fn get(&self, key: ColumnValue, scan_file: bool) -> anyhow::Result<Option<Tuple>> {
+    pub async fn get(
+        &self,
+        key: ColumnValue,
+        scan_file: bool,
+    ) -> Result<Option<Tuple>, TableBufferError> {
         // read from the index; get the cursor
         if let Some(offset) = self.index.get(&key) {
             let tuple = self.block.seek_to_offset(*offset).await?;
@@ -102,7 +115,7 @@ impl TableBuffer {
         }
     }
 
-    pub async fn write(&mut self, key: ColumnValue, tuple: Tuple) -> anyhow::Result<()> {
+    pub async fn write(&mut self, key: ColumnValue, tuple: Tuple) -> Result<(), TableBufferError> {
         // write the tuple
         let length_bytes = self.block.write(tuple).await?;
         // update the index
@@ -120,13 +133,16 @@ impl TableBuffer {
     }
 
     // scan the entire block to get an item
-    async fn scan_block_get_item(&self, user_key: ColumnValue) -> anyhow::Result<Option<Tuple>> {
+    async fn scan_block_get_item(
+        &self,
+        user_key: ColumnValue,
+    ) -> Result<Option<Tuple>, TableBufferError> {
         let mut stream = self.block.get_reader().await?;
         while let Some(tuple) = stream.next().await {
             let tuple = tuple?;
             let key = tuple[self.pk_position]
                 .clone()
-                .with_context(|| "invariant violation: primary key value not found in tuple.")?;
+                .ok_or(TableBufferError::PrimaryKeyNotInTuple)?;
             if key == user_key {
                 return Ok(Some(tuple));
             }
@@ -135,13 +151,13 @@ impl TableBuffer {
     }
 
     // build the index during initialization by reading through the entire block
-    async fn build_index(&mut self) -> anyhow::Result<()> {
+    async fn build_index(&mut self) -> Result<(), TableBufferError> {
         let mut stream = self.block.get_reader_with_length().await?;
         while let Some(result) = stream.next().await {
             let (tuple, length) = result?;
             let index_key = tuple[self.pk_position]
                 .clone()
-                .with_context(|| "invariant violation: primary key value not found in tuple.")?;
+                .ok_or(TableBufferError::PrimaryKeyNotInTuple)?;
             // Calling the index.update function in this tight loop might be
             // slow; as we obtain the lock, update the data and release the lock
             // inside this tight loop. But it's fine until this practically

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::Catalog;
+use crate::query::error::QueryError;
 use crate::query::types::{ColumnDefinition, ColumnName, ColumnType, ColumnValue, TableName};
 use crate::storage::Tuple;
 
@@ -15,29 +15,30 @@ pub struct PutItemCommand {
 
 pub type Item = HashMap<ColumnName, ColumnValue>;
 
-pub async fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow::Result<()> {
+pub async fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> Result<(), QueryError> {
     // check if table name is valid
     match catalog.get_table_mut(&command.table_name) {
-        None => bail!("Table name '{}' doesn't exist.", command.table_name),
+        None => return Err(QueryError::TableNotFound(command.table_name)),
         Some(table) => {
             // check if primary key is present in payload
             let key = match command.item.get(&table.primary_key) {
-                None => bail!(
-                    "Item object must contain primary key: {}.",
-                    table.primary_key
-                ),
+                None => {
+                    return Err(QueryError::ItemMustContainPrimaryKey(
+                        table.primary_key.clone(),
+                    ))
+                }
                 // we need a copy of the key to store in the index, along with
                 // the tuple being stored on disk. hence, the clone.
                 Some(primary_key_value) => primary_key_value.clone(),
             };
             // check to see if this primary key already exists
             if table.table_buffer.contains_key(&key) {
-                bail!("ERROR: Item with primary key '{}' already exists.", key);
+                return Err(QueryError::PrimaryKeyAlreadyExists(key));
             }
             // check if item data is valid
             for (column_name, value) in &command.item {
                 match table.get_column(column_name) {
-                    None => bail!("Unknown column in item object: {}.", column_name),
+                    None => return Err(QueryError::UnknownColumnInItem(column_name.clone())),
                     Some(column) => typecheck_column(column, value)?,
                 }
             }
@@ -49,17 +50,18 @@ pub async fn put_item(command: PutItemCommand, catalog: &mut Catalog) -> anyhow:
     Ok(())
 }
 
-fn typecheck_column(column: &ColumnDefinition, value: &ColumnValue) -> anyhow::Result<()> {
+fn typecheck_column(column: &ColumnDefinition, value: &ColumnValue) -> Result<(), QueryError> {
     match (&column.r#type, value) {
         (ColumnType::Boolean, ColumnValue::Boolean(_)) => (),
         (ColumnType::Integer, ColumnValue::Integer(_)) => (),
         // (ColumnType::Float, ColumnValue::Float(_)) => (),
         (ColumnType::Text, ColumnValue::Text(_)) => (),
-        (col_type, val_type) => bail!(
-            "Column type mismatch. Column defined as type: {}, but provided value has type: {}.",
-            col_type,
-            val_type.to_string(),
-        ),
+        (col_type, col_val) => {
+            return Err(QueryError::ColumnTypeMismatch {
+                expected: col_type.clone(),
+                given: col_val.to_type(),
+            })
+        }
     }
     Ok(())
 }

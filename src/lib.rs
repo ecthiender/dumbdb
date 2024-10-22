@@ -5,6 +5,8 @@ pub use dml::{FilterItemCommand, GetItemCommand, PutItemCommand, Record};
 use query::ddl;
 pub use query::ddl::DropTableCommand;
 use query::dml;
+pub use query::error;
+use query::error::QueryError;
 pub use query::types::TableDefinition;
 pub use query::types::TableName;
 
@@ -19,34 +21,34 @@ pub struct Database {
 }
 
 impl Database {
-    pub async fn new(path: &str) -> anyhow::Result<Self> {
+    pub async fn new(path: &str) -> Result<Self, QueryError> {
         let catalog = Catalog::new(PathBuf::from(path)).await?;
         Ok(Self { catalog })
     }
 
-    pub async fn create_table(&mut self, table: TableDefinition) -> anyhow::Result<()> {
+    pub async fn create_table(&mut self, table: TableDefinition) -> Result<(), QueryError> {
         ddl::create_table(table, &mut self.catalog).await
     }
 
-    pub async fn drop_table(&mut self, command: DropTableCommand) -> anyhow::Result<()> {
+    pub async fn drop_table(&mut self, command: DropTableCommand) -> Result<(), QueryError> {
         ddl::drop_table(command, &mut self.catalog).await
     }
 
-    pub async fn put_item(&mut self, command: dml::PutItemCommand) -> anyhow::Result<()> {
+    pub async fn put_item(&mut self, command: dml::PutItemCommand) -> Result<(), QueryError> {
         dml::put_item(command, &mut self.catalog).await
     }
 
     pub async fn get_item(
         &self,
         command: dml::GetItemCommand,
-    ) -> anyhow::Result<Option<dml::Record>> {
+    ) -> Result<Option<dml::Record>, QueryError> {
         dml::get_item(command, &self.catalog, false).await
     }
 
     pub async fn filter_item(
         &self,
         command: dml::FilterItemCommand,
-    ) -> anyhow::Result<Vec<dml::Record>> {
+    ) -> Result<Vec<dml::Record>, QueryError> {
         dml::filter_item(command, &self.catalog).await
     }
 
@@ -140,7 +142,7 @@ mod tests {
         let res = db.put_item(put_item_2).await.map_err(|e| e.to_string());
         assert_eq!(
             res,
-            Err("ERROR: Item with primary key '42' already exists.".to_string())
+            Err("Record with primary key '42' already exists.".to_string())
         );
 
         Ok(())
