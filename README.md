@@ -4,8 +4,8 @@ It's a dumb database. It is not durable. It does not make any ACID guarantees. T
 
 ## Overview
 
-No plain text (SQL like) queries. All querying is done via specific APIs. There
-is a separate group of APIs for each type of query.
+No rich text queries (like SQL). All querying is done via specific APIs. There
+is a separate API for each kind of query.
 
 ### Create a table
 Create a table with the `create_table` API. Having a primary key column is required.

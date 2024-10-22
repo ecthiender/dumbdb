@@ -1,7 +1,8 @@
 use anyhow::{bail, Context};
-use tokio::fs::File;
+use serde::{Deserialize, Serialize};
+use tokio::fs::{remove_file, File};
 
-use crate::catalog::Catalog;
+use crate::{catalog::Catalog, TableName};
 
 use super::types::TableDefinition;
 
@@ -31,5 +32,36 @@ async fn create_table_on_disk(table: &TableDefinition, catalog: &Catalog) -> any
         )
     })?;
 
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DropTableCommand {
+    pub table_name: TableName,
+}
+
+/// drops a table from the catalog and also on the disk
+pub async fn drop_table(
+    DropTableCommand { table_name }: DropTableCommand,
+    catalog: &mut Catalog,
+) -> anyhow::Result<()> {
+    if catalog.get_table(&table_name).is_none() {
+        bail!("No table '{}' exists", table_name);
+    }
+    drop_table_from_disk(&table_name, catalog).await?;
+    catalog.drop_table(table_name).await?;
+    Ok(())
+}
+
+async fn drop_table_from_disk(table_name: &TableName, catalog: &Catalog) -> anyhow::Result<()> {
+    let table_path = catalog.get_table_path(table_name);
+    if table_path.exists() {
+        remove_file(&table_path).await.with_context(|| {
+            format!(
+                "FATAL: Internal Error: Error removing file {}",
+                table_path.display()
+            )
+        })?;
+    }
     Ok(())
 }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use catalog::Catalog;
 pub use dml::{FilterItemCommand, GetItemCommand, PutItemCommand, Record};
 use query::ddl;
+pub use query::ddl::DropTableCommand;
 use query::dml;
 pub use query::types::TableDefinition;
 pub use query::types::TableName;
@@ -25,6 +26,10 @@ impl Database {
 
     pub async fn create_table(&mut self, table: TableDefinition) -> anyhow::Result<()> {
         ddl::create_table(table, &mut self.catalog).await
+    }
+
+    pub async fn drop_table(&mut self, command: DropTableCommand) -> anyhow::Result<()> {
+        ddl::drop_table(command, &mut self.catalog).await
     }
 
     pub async fn put_item(&mut self, command: dml::PutItemCommand) -> anyhow::Result<()> {
@@ -86,7 +91,6 @@ mod tests {
             .await?
             .collect::<Vec<_>>()
             .await;
-        dbg!(&lines);
 
         let last_line = lines.into_iter().last().unwrap();
         // .with_context(|| "There should be 10 rows written")?;

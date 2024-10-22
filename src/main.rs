@@ -11,6 +11,7 @@ use axum::Json;
 use axum::Router;
 use axum_macros::debug_handler;
 use clap::Parser;
+use dumbdb::DropTableCommand;
 use dumbdb::TableName;
 use rand::distributions::Alphanumeric;
 use rand::thread_rng;
@@ -72,6 +73,7 @@ async fn main() {
         .route("/", get(root))
         .route("/healthz", get(healthz))
         .route("/api/v1/ddl/create_table", post(create_table_handler))
+        .route("/api/v1/ddl/drop_table", post(drop_table_handler))
         .route("/api/v1/ddl/get_table_size/:table", get(table_size_handler))
         .route("/api/v1/dml/get_item", post(get_item_handler))
         .route("/api/v1/dml/put_item", post(put_item_handler))
@@ -105,6 +107,15 @@ async fn create_table_handler(
     let mut db = state.db.write().await;
     db.create_table(payload).await?;
     Ok(axum::response::Json(SuccessMessage::new("table created")))
+}
+
+async fn drop_table_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<DropTableCommand>,
+) -> Result<Json<SuccessMessage>, AppError> {
+    let mut db = state.db.write().await;
+    db.drop_table(payload).await?;
+    Ok(axum::response::Json(SuccessMessage::new("table deleted")))
 }
 
 async fn table_size_handler(

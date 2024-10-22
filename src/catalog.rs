@@ -71,6 +71,12 @@ impl Catalog {
         Ok(())
     }
 
+    pub(crate) async fn drop_table(&mut self, table_name: TableName) -> anyhow::Result<()> {
+        self.tables.retain(|t| t.name != table_name);
+        self.flush()?;
+        Ok(())
+    }
+
     pub(crate) fn get_table_size(&self, name: &TableName) -> Option<usize> {
         self.get_table(name).map(|table| table.table_buffer.size())
     }
