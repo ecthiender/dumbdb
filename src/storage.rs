@@ -41,6 +41,10 @@ pub struct Block {
     write_handle: Arc<RwLock<File>>,
 }
 
+// Size of the length prefix. We use these many bits to store the length of each
+// tuple.
+const LENGTH_PREFIX_SIZE: usize = 8;
+
 impl Block {
     /// Create a new block. Takes a file path, where the data of the block is
     /// stored on disk.
@@ -48,7 +52,7 @@ impl Block {
         let file = std::fs::OpenOptions::new()
             .append(true)
             .open(table_path)
-            .with_context(|| "ERROR: Internal Error: Could not open block file for writing.")?;
+            .with_context(|| "Internal Error: Could not open block file for writing.")?;
 
         Ok(Self {
             file_path: table_path.to_path_buf(),
@@ -61,17 +65,24 @@ impl Block {
     /// return a `Tuple`
     pub async fn seek_to_offset(&self, offset: u64) -> anyhow::Result<Tuple> {
         // Seek to the correct byte offset
-        let mut file = File::open(&self.file_path).await?;
-        file.seek(SeekFrom::Start(offset)).await?;
+        let mut file = File::open(&self.file_path)
+            .await
+            .with_context(|| "Internal Error: Could not open block file for seeking.")?;
+        file.seek(SeekFrom::Start(offset))
+            .await
+            .with_context(|| "Internal Error: Could not seek in file.")?;
 
         // Read the length prefix (8 bytes)
-        let mut length_buf = [0u8; 8];
+        let mut length_buf = [0u8; LENGTH_PREFIX_SIZE];
         file.read_exact(&mut length_buf).await?;
+        // .with_context(|| "Internal Error: Could not read length-prefix from file.")?;
         let tuple_length = u64::from_le_bytes(length_buf);
 
         // Now read the tuple data based on its length
         let mut data_buf = vec![0u8; tuple_length as usize];
-        file.read_exact(&mut data_buf).await?;
+        file.read_exact(&mut data_buf)
+            .await
+            .with_context(|| "Internal Error: Could not read data frame from file.")?;
 
         deserialize_binary(&data_buf)
     }
@@ -80,51 +91,47 @@ impl Block {
     /// This uses Rust iterators, so it is memory efficient.
     pub async fn get_reader(&self) -> anyhow::Result<impl Stream<Item = anyhow::Result<Tuple>>> {
         // this is basically: getStream >>= traverse fst
-        let stream = self.get_reader_with_byte_offset().await?;
+        let stream = self.get_reader_with_length().await?;
         Ok(stream.map(|x| x.map(|(tuple, _length_prefix)| tuple)))
     }
 
     /// Get an iterator over the block to read tuples along with its byte
     /// offset, in an iterator pattern. This uses Rust iterators, so it is
     /// memory efficient.
-    pub async fn get_reader_with_byte_offset(
+    pub async fn get_reader_with_length(
         &self,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<(Tuple, u64)>>> {
         // this is basically: getStream >>= traverse deserialize_binary
-        let stream = self.get_stream_with_byte_offset().await?;
+        let stream = self.get_stream_with_length().await?;
         Ok(stream
-            .map(|(data, offset)| deserialize_binary(&data).map(|tuple: Tuple| (tuple, offset))))
+            .map(|(data, length)| deserialize_binary(&data).map(|tuple: Tuple| (tuple, length))))
     }
 
-    async fn get_stream_with_byte_offset(
+    async fn get_stream_with_length(
         &self,
     ) -> anyhow::Result<Pin<Box<impl Stream<Item = (Vec<u8>, u64)>>>> {
         let file = File::open(&self.file_path).await?;
         let reader = BufReader::new(file);
-        let offset: u64 = 0;
+        // let offset: u64 = 0;
         // Create a stream that reads the file and yields tuples with their offsets
-        let stream =
-            futures::stream::unfold((reader, offset), |(mut reader, mut offset)| async move {
-                // Read the length prefix
-                let mut length_bytes = [0u8; 8];
-                match reader.read_exact(&mut length_bytes).await {
-                    Err(_e) => {
-                        None // EOF or read error
-                    }
-                    Ok(_x) => {
-                        // Read the data frame
-                        let length = u64::from_le_bytes(length_bytes); // length of the data from the prefix
-                        let mut buffer = vec![0; length as usize];
-                        if reader.read_exact(&mut buffer).await.is_err() {
-                            return None; // Read error
-                        }
-                        let current_offset = offset;
-                        offset += 8 + length; // 8 bytes for the length prefix + length of the tuple
-                        Some(((buffer, current_offset), (reader, offset)))
-                    }
+        let stream = futures::stream::unfold(reader, |mut reader| async move {
+            // Read the length prefix
+            let mut length_bytes = [0u8; LENGTH_PREFIX_SIZE];
+            match reader.read_exact(&mut length_bytes).await {
+                Err(_e) => {
+                    None // EOF or read error
                 }
-            });
-        println!("Stream created.");
+                Ok(_x) => {
+                    // Read the data frame
+                    let length = u64::from_le_bytes(length_bytes); // length of the data from the prefix
+                    let mut buffer = vec![0; length as usize];
+                    if reader.read_exact(&mut buffer).await.is_err() {
+                        return None; // Read error
+                    }
+                    Some(((buffer, length), (reader)))
+                }
+            }
+        });
         Ok(Box::pin(stream))
     }
 
@@ -150,6 +157,11 @@ impl Block {
         file.sync_all().await?;
         Ok(())
     }
+}
+
+pub fn calculate_new_offset(tuple_length: u64, current_offset: u64) -> u64 {
+    // new offset = current offset + length prefix + length of the tuple
+    current_offset + LENGTH_PREFIX_SIZE as u64 + tuple_length
 }
 
 fn serialize_binary<T>(value: &T) -> anyhow::Result<Vec<u8>>

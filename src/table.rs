@@ -1,14 +1,16 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::Context;
 use futures::StreamExt;
+use tokio::sync::Mutex;
 
 use crate::{
     query::types::{ColumnValue, TableName},
-    storage::{Block, Tuple},
+    storage::{calculate_new_offset, Block, Tuple},
     TableDefinition,
 };
 
@@ -22,7 +24,7 @@ pub(crate) struct TableBuffer {
     pub(crate) index: HashMap<ColumnValue, u64>,
     // The current byte offset we are pointing to. This is used for indexing. To
     // know where in the file a particular tuple is located.
-    pub(crate) byte_offset: u64,
+    pub(crate) byte_offset: Arc<Mutex<u64>>,
     pub(crate) pk_position: usize,
 }
 
@@ -45,7 +47,7 @@ impl TableBuffer {
             block,
             pk_position: key_position,
             index: HashMap::new(),
-            byte_offset: 0,
+            byte_offset: Arc::new(Mutex::new(0)),
         };
         table.build_index().await?;
         Ok(table)
@@ -75,10 +77,12 @@ impl TableBuffer {
     }
 
     pub async fn write(&mut self, key: ColumnValue, tuple: Tuple) -> anyhow::Result<()> {
+        // write the tuple
         let length_bytes = self.block.write(tuple).await?;
-        // update byte offset index
-        self.index.insert(key, self.byte_offset);
-        self.byte_offset = self.byte_offset + 8 + length_bytes;
+        // update the index
+        let mut curr_offset = self.byte_offset.lock().await;
+        self.index.insert(key, *curr_offset);
+        *curr_offset = calculate_new_offset(length_bytes, *curr_offset);
         Ok(())
     }
 
@@ -108,14 +112,15 @@ impl TableBuffer {
 
     // build the index during initialization by reading through the entire block
     async fn build_index(&mut self) -> anyhow::Result<()> {
-        let mut stream = self.block.get_reader_with_byte_offset().await?;
+        let mut stream = self.block.get_reader_with_length().await?;
+        let mut curr_offset = self.byte_offset.lock().await;
         while let Some(result) = stream.next().await {
-            let (tuple, offset) = result?;
+            let (tuple, length) = result?;
             let index_key = tuple[self.pk_position]
                 .clone()
                 .with_context(|| "invariant violation: primary key value not found in tuple.")?;
-            self.index.insert(index_key, offset);
-            self.byte_offset = offset;
+            self.index.insert(index_key, *curr_offset);
+            *curr_offset = calculate_new_offset(length, *curr_offset);
         }
         Ok(())
     }
