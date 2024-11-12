@@ -25,7 +25,7 @@ use dumbdb::{
     Database, FilterItemCommand, GetItemCommand, PutItemCommand, Record, TableDefinition,
 };
 
-const DEFAULT_PORT: u16 = 3000;
+const DEFAULT_PORT: u16 = 3333;
 
 /// Our server's CLI
 #[derive(clap::Parser, Debug)]
