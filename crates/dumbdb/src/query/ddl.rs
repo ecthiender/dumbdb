@@ -8,6 +8,9 @@ use super::{
     types::TableDefinition,
 };
 
+/// A type alias for TableDefinition; this is to be consistent on the public API.
+pub type CreateTableCommand = TableDefinition;
+
 /// creates a table in the catalog and also on the disk
 pub async fn create_table(table: TableDefinition, catalog: &mut Catalog) -> Result<(), QueryError> {
     if catalog.get_table(&table.name).is_some() {

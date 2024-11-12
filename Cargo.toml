@@ -2,5 +2,7 @@
 resolver = "2"
 
 members = [
-  "crates/dumbdb"
-, "crates/server"]
+  "crates/dumbdb",
+  "crates/repl",
+  "crates/server"
+]

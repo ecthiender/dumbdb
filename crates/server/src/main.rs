@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::process;
 use std::sync::Arc;
 
 use axum::extract::Path;
@@ -60,7 +61,13 @@ async fn main() {
 
     let server_options = ServerOptions::parse();
 
-    let db = Database::new(&server_options.database_path).await.unwrap();
+    let db = match Database::new(&server_options.database_path).await {
+        Ok(db) => db,
+        Err(err) => {
+            println!("FATAL ERROR: {}", err);
+            process::exit(1);
+        }
+    };
 
     let shared_state = Arc::new(AppState {
         db: RwLock::new(db),

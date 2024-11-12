@@ -77,6 +77,12 @@ impl From<String> for ColumnValue {
     }
 }
 
+impl From<&str> for ColumnValue {
+    fn from(value: &str) -> Self {
+        Self::from(value.to_string())
+    }
+}
+
 impl From<ColumnValue> for String {
     fn from(val: ColumnValue) -> String {
         format!("{}", val)

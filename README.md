@@ -8,9 +8,10 @@ No rich text queries (like SQL). All querying is done via specific APIs. There
 is a separate API for each kind of query.
 
 ### Create a table
+
 Create a table with the `create_table` API. Having a primary key column is required.
 
-``` sh
+```sh
 curl localhost:3000/api/v1/ddl/create_table \
     -XPOST \
     -d @create_table.json \
@@ -19,7 +20,7 @@ curl localhost:3000/api/v1/ddl/create_table \
 
 `create_table.json` -
 
-``` json
+```json
 {
   "name": "authors",
   "columns": [
@@ -37,9 +38,10 @@ curl localhost:3000/api/v1/ddl/create_table \
 ```
 
 ### Write data
+
 Write data via `put_item` API.
 
-``` sh
+```sh
 curl localhost:3000/api/v1/dml/put_item \
     -XPOST \
     -d @put_item.json \
@@ -48,7 +50,7 @@ curl localhost:3000/api/v1/dml/put_item \
 
 `put_item.json` -
 
-``` json
+```json
 {
   "table_name": "authors",
   "item": {
@@ -59,9 +61,10 @@ curl localhost:3000/api/v1/dml/put_item \
 ```
 
 ### Read data
+
 Read data via `get_item` API. Passing the primary key column is required.
 
-``` sh
+```sh
 curl localhost:3000/api/v1/dml/get_item \
     -XPOST \
     -d @get_item.json \
@@ -70,7 +73,7 @@ curl localhost:3000/api/v1/dml/get_item \
 
 `get_item.json` -
 
-``` json
+```json
 {
   "table_name": "authors",
   "key": 42
@@ -81,7 +84,7 @@ curl localhost:3000/api/v1/dml/get_item \
 
 Filter data via `filter_item` API, using a filter expression. Passing primary key column is not required.
 
-``` sh
+```sh
 curl localhost:3000/api/v1/dml/filter_item \
   -XPOST \
   -d @filter_item.json \
@@ -90,7 +93,7 @@ curl localhost:3000/api/v1/dml/filter_item \
 
 `filter_item.json` -
 
-``` json
+```json
 {
   "table_name": "authors",
   "filter": {
@@ -120,9 +123,11 @@ curl localhost:3000/api/v1/dml/filter_item \
 ```
 
 ### Update data
+
 [Future] Update data via `update_item` API.
 
 ### Supported column types
+
 - `Integer`
 - `Float`
 - `Text`

@@ -3,12 +3,11 @@ use std::path::PathBuf;
 use catalog::Catalog;
 pub use dml::{FilterItemCommand, GetItemCommand, PutItemCommand, Record};
 use query::ddl;
-pub use query::ddl::DropTableCommand;
+pub use query::ddl::{CreateTableCommand, DropTableCommand};
 use query::dml;
 pub use query::error;
 use query::error::QueryError;
-pub use query::types::TableDefinition;
-pub use query::types::TableName;
+pub use query::types::{ColumnValue, TableDefinition, TableName};
 
 mod catalog;
 mod query;
@@ -26,7 +25,7 @@ impl Database {
         Ok(Self { catalog })
     }
 
-    pub async fn create_table(&mut self, table: TableDefinition) -> Result<(), QueryError> {
+    pub async fn create_table(&mut self, table: CreateTableCommand) -> Result<(), QueryError> {
         ddl::create_table(table, &mut self.catalog).await
     }
 
