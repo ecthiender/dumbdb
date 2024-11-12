@@ -54,6 +54,10 @@ impl Database {
     pub fn get_size(&self, table: &TableName) -> Option<usize> {
         self.catalog.get_table_size(table)
     }
+
+    pub fn list_tables(&self) -> Vec<TableName> {
+        self.catalog.list_tables()
+    }
 }
 
 #[cfg(test)]

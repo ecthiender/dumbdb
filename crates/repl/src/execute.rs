@@ -57,8 +57,16 @@ pub async fn execute_command(
             db.put_item(cmd).await?;
             println!("Inserted");
             Ok(Output::Done)
-        } // Command::Filter(cmd) => {
-          //     db.filter_item(cmd).await.unwrap();
-          // }
+        }
+        Command::ListTables => {
+            let tables = db.list_tables();
+            println!("Tables");
+            println!("------");
+            for table in tables {
+                println!("{}", table);
+            }
+            println!();
+            Ok(Output::Done)
+        }
     }
 }

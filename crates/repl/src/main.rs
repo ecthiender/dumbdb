@@ -13,7 +13,6 @@ use std::{
     fmt::{Debug, Display},
     path::PathBuf,
 };
-use tokio;
 
 const PROMPT: &str = "%~dumbdb> ";
 const HISTORY_FILE: &str = "history.txt";
@@ -91,7 +90,7 @@ async fn eval(db: &mut Database, input: String) -> Result<Output<OurRecord>, App
     let command = parse_command(input)?;
     // println!("Parsed command: {:?}", command);
     let output = execute_command(db, command).await?;
-    Ok(output.fmap(|record| OurRecord(record)))
+    Ok(output.fmap(OurRecord))
 }
 
 fn pretty_print_output<T: Display + Debug>(output: Output<T>) {

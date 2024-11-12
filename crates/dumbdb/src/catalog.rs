@@ -63,6 +63,10 @@ impl Catalog {
         })
     }
 
+    pub(crate) fn list_tables(&self) -> Vec<TableName> {
+        self.tables.iter().map(|t| t.name.clone()).collect()
+    }
+
     pub(crate) fn get_table(&self, name: &TableName) -> Option<&Table> {
         self.tables.iter().find(|&table| table.name == *name)
     }

@@ -2,15 +2,20 @@ use crate::error::{CreateTableError, ParseError};
 use dumbdb::{
     CreateTableCommand, DropTableCommand, GetItemCommand, PutItemCommand, TableDefinition,
 };
-use serde_json;
 
 #[derive(Debug)]
 pub enum Command {
+    // DDL commands
     CreateTable(CreateTableCommand),
     DropTable(DropTableCommand),
+
+    // Actual DML commands
     Get(GetItemCommand),
     Put(PutItemCommand),
     // Filter(FilterItemCommand),
+
+    // Meta commands
+    ListTables,
 }
 
 pub fn parse_command(input: String) -> Result<Command, ParseError> {
@@ -27,6 +32,7 @@ pub fn parse_command(input: String) -> Result<Command, ParseError> {
         "put" => Ok(Command::Put(parse_put(command_args)?)),
         "create-table" => Ok(Command::CreateTable(parse_create_table(command_args)?)),
         "drop-table" => Ok(Command::DropTable(parse_drop_table(command_args))),
+        ".tables" => Ok(Command::ListTables),
         _ => Err(ParseError::UnknownCommand(command_name.to_string())),
     }
 }
@@ -49,7 +55,7 @@ fn parse_get(tokens: &str) -> Result<GetItemCommand, ParseError> {
 
 fn parse_put(tokens: &str) -> Result<PutItemCommand, ParseError> {
     let (table_name, args) = take_while(tokens, ' ');
-    let item = serde_json::from_str(args).map_err(|e| ParseError::Put(e))?;
+    let item = serde_json::from_str(args).map_err(ParseError::Put)?;
     Ok(PutItemCommand {
         table_name: table_name.into(),
         item,
@@ -58,15 +64,15 @@ fn parse_put(tokens: &str) -> Result<PutItemCommand, ParseError> {
 
 fn parse_create_table(tokens: &str) -> Result<CreateTableCommand, ParseError> {
     let (name, rest) = take_while(tokens, ' ');
-    let json_val = serde_json::from_str(rest).map_err(|e| CreateTableError::InvalidJson(e))?;
+    let json_val = serde_json::from_str(rest).map_err(CreateTableError::InvalidJson)?;
 
     let cols = get_from_json_object(&json_val, "columns")
         .ok_or_else(|| CreateTableError::ColumnsNotFound)?;
-    let columns = serde_json::from_value(cols).map_err(|e| CreateTableError::InvalidJson(e))?;
+    let columns = serde_json::from_value(cols).map_err(CreateTableError::InvalidJson)?;
 
     let pk = get_from_json_object(&json_val, "primary_key")
         .ok_or_else(|| CreateTableError::PrimaryKeyNotFound)?;
-    let primary_key = serde_json::from_value(pk).map_err(|e| CreateTableError::InvalidJson(e))?;
+    let primary_key = serde_json::from_value(pk).map_err(CreateTableError::InvalidJson)?;
 
     Ok(TableDefinition {
         name: name.into(),
