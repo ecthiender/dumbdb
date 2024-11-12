@@ -11,9 +11,6 @@ use axum::Json;
 use axum::Router;
 use axum_macros::debug_handler;
 use clap::Parser;
-use dumbdb::error::QueryError;
-use dumbdb::DropTableCommand;
-use dumbdb::TableName;
 use rand::distributions::Alphanumeric;
 use rand::thread_rng;
 use rand::Rng;
@@ -21,8 +18,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::RwLock;
 
+use dumbdb::error::QueryError;
 use dumbdb::{
-    Database, FilterItemCommand, GetItemCommand, PutItemCommand, Record, TableDefinition,
+    Database, DropTableCommand, FilterItemCommand, GetItemCommand, PutItemCommand, Record,
+    TableDefinition, TableName,
 };
 
 const DEFAULT_PORT: u16 = 3333;
