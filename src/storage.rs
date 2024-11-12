@@ -162,8 +162,8 @@ impl Block {
         // Write the length prefix and then the actual data
         file.write_all(&length_bytes).await?;
         file.write_all(&data).await?;
-        file.flush().await?;
-        file.sync_all().await?;
+        // file.flush().await?;
+        // file.sync_all().await?;
         Ok(())
     }
 }

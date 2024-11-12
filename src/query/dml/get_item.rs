@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-use super::common::{parse_record, Record};
+use super::common::{build_record, Record};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetItemCommand {
@@ -28,7 +28,7 @@ pub async fn get_item(
                 .table_buffer
                 .get(command.key, scan_file)
                 .await?
-                .map(|item| parse_record(&table.columns, item));
+                .map(|item| build_record(&table.columns, item));
 
             Ok(record)
         }

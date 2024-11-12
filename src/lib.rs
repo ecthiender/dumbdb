@@ -190,7 +190,7 @@ mod tests {
     #[tokio::test]
     async fn test_write_lots_of_data() -> anyhow::Result<()> {
         let mut db = setup("write_data_lots").await?;
-        for i in 0..111 {
+        for i in 0..1001 {
             let author_item = create_put_item(i)?;
             db.put_item(author_item).await?;
         }

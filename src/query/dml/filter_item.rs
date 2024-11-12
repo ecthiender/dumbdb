@@ -11,7 +11,7 @@ use crate::{
     table::TableBufferError,
 };
 
-use super::{common::parse_record, Record};
+use super::{common::build_record, Record};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FilterItemCommand {
@@ -36,7 +36,7 @@ pub async fn filter_item(
             while let Some(tuple) = stream.next().await {
                 let tuple = tuple.map_err(TableBufferError::StorageError)?;
                 if evaluate_expression(&table.columns, &command.filter, &tuple) {
-                    res.push(parse_record(&table.columns, tuple));
+                    res.push(build_record(&table.columns, tuple));
                 }
             }
             Ok(res)

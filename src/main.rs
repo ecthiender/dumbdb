@@ -20,8 +20,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::RwLock;
-use tower_http::trace::{self, TraceLayer};
-use tracing::Level;
 
 use dumbdb::{
     Database, FilterItemCommand, GetItemCommand, PutItemCommand, Record, TableDefinition,
@@ -79,11 +77,9 @@ async fn main() {
         .route("/api/v1/dml/get_item", post(get_item_handler))
         .route("/api/v1/dml/put_item", post(put_item_handler))
         .route("/api/v1/dml/filter_item", post(filter_item_handler))
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
-                .on_response(trace::DefaultOnResponse::new().level(Level::INFO)),
-        )
+        // TODO: add tracing/logging back later. When we have proper benchmarks
+        // indicating performance of operations, and we can prove that
+        // tracing/logging is negligible
         .with_state(shared_state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], server_options.port));
