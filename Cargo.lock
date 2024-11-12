@@ -321,6 +321,7 @@ dependencies = [
 name = "dumbdb-repl"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "dumbdb",
  "rustyline",
  "serde",

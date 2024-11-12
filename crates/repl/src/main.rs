@@ -2,33 +2,56 @@ mod error;
 mod execute;
 mod parse;
 
+use clap::Parser;
 use dumbdb::Database;
 use error::AppError;
 use execute::{execute_command, OurRecord, Output};
 use parse::parse_command;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    path::PathBuf,
+};
 use tokio;
 
 const PROMPT: &str = "%~dumbdb> ";
-const DB_PATH: &str = "./data/dumbdb";
+const HISTORY_FILE: &str = "history.txt";
+
+/// REPL config options
+#[derive(clap::Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct ReplOptions {
+    /// Path to a database directory. The directory can be empty but it should exist.
+    #[arg(short, long)]
+    database_path: String,
+
+    /// Prompt for the REPL.
+    #[arg(long, default_value = PROMPT)]
+    prompt: String,
+
+    /// Filepath to store history.
+    #[arg(long, default_value = HISTORY_FILE)]
+    history_file: PathBuf,
+}
 
 #[tokio::main]
 async fn main() {
     println!("Welcome to DumbDB!");
 
-    println!("Loading {}", DB_PATH);
-    let mut db = Database::new(DB_PATH)
+    let config = ReplOptions::parse();
+    println!("Loading {}", config.database_path);
+
+    let mut db = Database::new(&config.database_path)
         .await
         .expect("Failed to initialize the database.");
     let mut editor = DefaultEditor::new().expect("Failed to create TUI editor");
-    if editor.load_history("history.txt").is_err() {
+    if editor.load_history(&config.history_file).is_err() {
         println!("No previous history.");
     }
     loop {
         // Display a prompt and read input
-        match editor.readline(PROMPT) {
+        match editor.readline(&config.prompt) {
             Ok(line) => {
                 // Add line to history
                 let _ = editor.add_history_entry(line.as_str());
@@ -61,7 +84,7 @@ async fn main() {
             }
         }
     }
-    let _ = editor.save_history("history.txt");
+    let _ = editor.save_history(&config.history_file);
 }
 
 async fn eval(db: &mut Database, input: String) -> Result<Output<OurRecord>, AppError> {
